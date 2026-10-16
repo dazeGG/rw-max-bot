@@ -3,12 +3,21 @@ import './tls';
 import { config } from './config';
 import { ContentCache } from './content/repository';
 import { pool } from './db';
+import { acquireInstanceLock } from './db/instance-lock';
 import { DialogEngine } from './dialog/engine';
 import { markSubscriberBlocked, PgSessionStore, saveUnrecognized, touchSubscriber } from './dialog/pg-store';
 import { logger } from './logger';
 import { createMaxBot } from './transport/max';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
+
+const lock = await acquireInstanceLock();
+
+if (!lock) {
+	logger.error('Another bot instance is already running for this database, exiting');
+	await pool.end();
+	process.exit(1);
+}
 
 const content = new ContentCache();
 await content.init(config.contentRefreshSeconds);
@@ -39,6 +48,7 @@ const shutdown = async () => {
 
 	const timeout = new Promise(resolve => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS).unref());
 	await Promise.race([drain(), timeout]);
+	lock.release();
 	await pool.end();
 
 	logger.on('finish', () => process.exit(0));
