@@ -1,0 +1,13 @@
+node_modules
+
+.idea
+.claude
+.omc
+.vscode
+
+logs
+coverage
+
+.env
+
+.DS_Store

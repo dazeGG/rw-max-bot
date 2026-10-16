@@ -1,0 +1,183 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { flattenSeed, SEED_SETTINGS } from '~/content/seed-data';
+import { ContentTree } from '~/content/tree';
+
+import { DialogEngine } from './engine';
+import { MemorySessionStore } from './memory-sessions';
+import type { UnrecognizedEvent } from './types';
+
+const tree = new ContentTree(flattenSeed(), SEED_SETTINGS);
+const user = { id: 42 };
+
+let sessions: MemorySessionStore;
+let unrecognized: UnrecognizedEvent[];
+let engine: DialogEngine;
+
+const currentCode = async () => tree.get((await sessions.get(user.id)).nodeId)?.code;
+const say = (text: string) => engine.handle(user, { type: 'text', text });
+
+beforeEach(async () => {
+	sessions = new MemorySessionStore();
+	unrecognized = [];
+	engine = new DialogEngine(() => tree, sessions, { onUnrecognized: event => void unrecognized.push(event) });
+	await engine.handle(user, { type: 'start' });
+});
+
+describe('свободный текст ведет в нужный раздел', () => {
+	it.each([
+		['Здравствуйте, как мне купить билет на поезд?', 'buy'],
+		['где купить билеты', 'buy'],
+		['билт на поезд', 'buy'],
+		['сколько стоит детский билет', 'faq-child'],
+		['сколько стоит билет для ребенка', 'faq-child'],
+		['сколько стоит билет', 'tariffs'],
+		['как купить билет дешевле', 'faq-cheaper'],
+		['можно ли с собакой', 'faq-pets'],
+		['где камера хранения', 'faq-storage'],
+		['кормят в поезде?', 'onboard-dining'],
+		['забыл сумку в вагоне', 'forgotten'],
+		['телефон поддержки', 'support'],
+		['расписание трансфера', 'transfer-schedule'],
+		['льготы', 'privileges'],
+		['скидки', 'promo'],
+		['за сколько дней начинается продажа билетов', 'faq-sale-start'],
+		['я инвалид, кто поможет?', 'limited-mobility'],
+	])('«%s» → %s', async (text, code) => {
+		await say(text);
+		expect(await currentCode()).toBe(code);
+	});
+});
+
+describe('уточняющие вопросы, как в чат-боте РЖД', () => {
+	it('«сдать билет» → вопрос с вариантами в тексте → ответ текстом', async () => {
+		const [question] = await say('хочу сдать билет');
+
+		expect(await currentCode()).toBe('refund');
+		expect(question.text).toContain('• Билет на поезд');
+		expect(question.text).toContain('• Талон на трансфер');
+
+		await say('трансфер');
+		expect(await currentCode()).toBe('transfer-refund');
+	});
+
+	it('короткий ответ учитывает контекст: «якутск» после «купить билет» → касса в Якутске', async () => {
+		await say('купить билет');
+		await say('якутск');
+
+		expect(await currentCode()).toBe('buy-yakutsk');
+	});
+
+	it('при равных вариантах бот переспрашивает и понимает ответ на уточнение', async () => {
+		const [reply] = await say('благовещенск');
+
+		expect(reply.text).toContain(SEED_SETTINGS['text.didYouMean']);
+		expect(reply.text).toContain('• Благовещенск');
+		expect(reply.text).toContain('• Поезд №317/№318 | Нижний Бестях – Благовещенск');
+
+		await say('поезд');
+		expect(await currentCode()).toBe('schedule-train-317318');
+	});
+
+	it('новый вопрос посреди уточнения уводит в другой раздел', async () => {
+		await say('сдать билет');
+		await say('как провозить животных');
+
+		expect(await currentCode()).toBe('faq-pets');
+	});
+});
+
+describe('навигация текстом', () => {
+	it('приветствие без вопроса → стартовое сообщение', async () => {
+		const replies = await say('Добрый день!');
+
+		expect(replies).toHaveLength(1);
+		expect(await currentCode()).toBe('root');
+	});
+
+	it('приветствие с вопросом → приветствие и ответ', async () => {
+		const replies = await say('Здравствуйте, где купить билет?');
+
+		expect(replies).toHaveLength(2);
+		expect(replies[0].text).toBe(SEED_SETTINGS['text.greeting']);
+	});
+
+	it('«назад» и «меню»', async () => {
+		await say('пассажирские поезда');
+		expect(await currentCode()).toBe('schedule-trains');
+
+		await say('назад');
+		expect(await currentCode()).toBe('schedule');
+
+		await say('меню');
+		expect(await currentCode()).toBe('root');
+	});
+
+	it('варианты ответа и ссылки перечисляются в тексте', async () => {
+		const [rules] = await say('правила перевозки');
+
+		expect(rules.text).toContain('• <a href="https://rw-y.ru/passengers/rules#1">Оформление перевозки пассажиров</a>');
+	});
+
+	it('«назад» после ссылки возвращает в раздел, где она лежит', async () => {
+		await say('купить билет');
+		await say('якутск');
+		await say('2гис');
+		expect(await currentCode()).toBe('buy-yakutsk-2gis');
+
+		await say('назад');
+		expect(await currentCode()).toBe('buy-yakutsk');
+	});
+
+	it('скрытые разделы не перечисляются в списке тем', async () => {
+		const [root] = await say('меню');
+		expect(root.text).not.toContain('Возврат билета');
+	});
+
+	it('неактивные разделы не перечисляются и не находятся', async () => {
+		const [trains] = await say('пассажирские поезда');
+
+		expect(trains.text).not.toContain('Поезд №321/№322');
+
+		await say('321');
+		expect(await currentCode()).not.toBe('schedule-train-321322');
+	});
+});
+
+describe('целостность дерева', () => {
+	it('goto в выключенный раздел не показывается', () => {
+		const nodes = flattenSeed().map(n => n.code === 'faq-refund' ? { ...n, isActive: false } : n);
+		const pruned = new ContentTree(nodes, SEED_SETTINGS);
+		const refund = pruned.getByCode('refund')!;
+
+		expect(pruned.children(refund).map(n => n.code)).toEqual(['refund-transfer']);
+	});
+
+	it('HTML в названии экранируется', async () => {
+		const nodes = flattenSeed().map(n => n.code === 'tariffs' ? { ...n, title: 'Багаж < 10 кг & A', text: null, synonyms: ['тарифы'] } : n);
+		const local = new DialogEngine(() => new ContentTree(nodes, SEED_SETTINGS), new MemorySessionStore());
+
+		const [reply] = await local.handle(user, { type: 'text', text: 'тарифы' });
+		expect(reply.text).toBe('<b>Багаж &lt; 10 кг &amp; A</b>');
+	});
+});
+
+describe('непонятный ввод (ТЗ п. 3.9)', () => {
+	it('подсказка со списком тем и запись в журнал', async () => {
+		const [reply] = await say('асдфыва');
+
+		expect(reply.text).toContain(SEED_SETTINGS['text.fallback']);
+		expect(reply.text).toContain('• Купить билет');
+		expect(unrecognized).toEqual([{ userId: user.id, text: 'асдфыва', nodeId: tree.root.id }]);
+	});
+});
+
+describe('вложения', () => {
+	it('раздел с картинкой и раздел с файлом', async () => {
+		const [tariffs] = await say('тарифы');
+		const [forgotten] = await say('забытые вещи');
+
+		expect(tariffs.image).toBe('generated/tariffs.jpg');
+		expect(forgotten.file).toEqual({ path: 'files/forgotten-items-application.pdf', name: 'Заявка на поиск забытых вещей.pdf' });
+	});
+});
