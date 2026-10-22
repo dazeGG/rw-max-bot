@@ -13,6 +13,7 @@
   "dependencies": {
     "@maxhub/max-bot-api": "^1.0.2",
     "@rw/core": "workspace:*",
-    "@rw/runtime": "workspace:*"
+    "@rw/runtime": "workspace:*",
+    "tsx": "^4.23.15"
   }
 }

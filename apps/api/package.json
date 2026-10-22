@@ -16,6 +16,7 @@
     "@rw/db": "workspace:*",
     "@rw/runtime": "workspace:*",
     "drizzle-orm": "^0.45.4",
-    "fastify": "^5.12.7"
+    "fastify": "^5.12.7",
+    "tsx": "^4.23.15"
   }
 }
