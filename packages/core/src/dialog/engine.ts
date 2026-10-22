@@ -62,6 +62,15 @@ export class DialogEngine {
 			return this.open(user, tree, tree.root);
 		}
 
+		// Номер варианта из последнего списка: «2» — второй пункт
+		if (/^\d{1,2}$/.test(rest)) {
+			const option = this.shownOptions(tree, current, session)[Number(rest) - 1];
+
+			if (option) {
+				return this.open(user, tree, option);
+			}
+		}
+
 		const choice = this.choose(tree, current, session, rest);
 
 		switch (choice.kind) {
@@ -101,12 +110,20 @@ export class DialogEngine {
 			? tree.children(parent).map(node => node.id)
 			: []);
 		const bonus = (node: ContentNode) => offered.has(node.id) ? CHILD_BONUS : siblings.has(node.id) ? SIBLING_BONUS : 0;
+		// Короткий ответ дополняется словами раздела: «расписание» в «Трансфере» → «Расписание трансфера»
+		const contextOf = (node: ContentNode) => {
+			if (offered.has(node.id)) {
+				return tree.stemsOf(current);
+			}
+
+			return siblings.has(node.id) && parent ? tree.stemsOf(parent) : undefined;
+		};
 		// goto-пункты — это варианты ответа на конкретный вопрос («Билет на поезд» в «Возврат билета»):
 		// вне своего вопроса они не участвуют, их цель и так есть в поиске
 		const everywhere = tree.all().filter(node => node.id !== tree.root.id &&
 			(node.type !== 'goto' || offered.has(node.id) || siblings.has(node.id)));
 
-		return this.pick(tree, rank(tree, everywhere, text, bonus));
+		return this.pick(tree, rank(tree, everywhere, text, bonus, contextOf));
 	}
 
 	private pick (tree: ContentTree, ranked: Candidate[], threshold = THRESHOLD): Choice {
@@ -167,13 +184,21 @@ export class DialogEngine {
 		};
 	}
 
-	// Варианты ответа перечисляются в тексте сообщения: пользователь отвечает своими словами
+	// Варианты ответа перечисляются в тексте сообщения: пользователь отвечает своими словами или номером
 	private withOptions (tree: ContentTree, text: string, options: ContentNode[]): string {
 		if (options.length === 0) {
 			return text;
 		}
 
-		return `${text}\n\n${options.map(option => `• ${this.optionLine(tree, option)}`).join('\n')}`;
+		return `${text}\n\n${options.map((option, i) => `${i + 1}. ${this.optionLine(tree, option)}`).join('\n')}`;
+	}
+
+	// Список из последнего сообщения: варианты уточнения или пункты текущего раздела
+	// (после «не понял» сессия стоит в главном меню, и показаны как раз его пункты)
+	private shownOptions (tree: ContentTree, current: ContentNode, session: Session): ContentNode[] {
+		const suggested = (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
+
+		return suggested.length > 0 ? suggested : tree.visibleChildren(current);
 	}
 
 	private optionLine (tree: ContentTree, node: ContentNode): string {
