@@ -31,7 +31,7 @@ docker compose version
 echo '== ufw'
 # Порты, опубликованные docker, ufw не фильтрует: наружу публикует только Caddy (80, 443).
 # Правила здесь — чтобы ufw status показывал реальную картину
-ufw allow 80/tcp comment 'http (Let'"'"'s Encrypt, redirect)'
+ufw allow 80/tcp comment 'http: Lets Encrypt, redirect'
 ufw allow 443/tcp comment 'https'
 ufw allow 443/udp comment 'http3'
 ufw status
