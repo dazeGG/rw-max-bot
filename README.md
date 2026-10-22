@@ -14,10 +14,11 @@
 pnpm install
 cp .env.example .env          # вписать BOT_TOKEN
 docker compose up -d          # PostgreSQL на localhost:5433
-pnpm db:migrate               # создать таблицы
-pnpm db:seed                  # залить начальный контент (из src/content/seed-data.ts)
 pnpm dev                      # бот в режиме polling: сервер и HTTPS не нужны
 ```
+
+При запуске бот сам применяет миграции и, если БД пустая, заливает начальный контент из `src/content/seed-data.ts`.
+Уже заполненную БД он не трогает: правки из веб-панели сохраняются.
 
 ### Без токена: симулятор чата
 
@@ -75,7 +76,7 @@ PORT=3000                      # nginx проксирует 443 → 3000
 | `pnpm test` | Тесты |
 | `pnpm typecheck`, `pnpm lint` | Проверки |
 | `pnpm db:generate` | Миграция после изменения `src/db/schema.ts` |
-| `pnpm db:migrate`, `pnpm db:seed [--force]` | Миграции и начальный контент |
+| `pnpm db:migrate`, `pnpm db:seed [--force]` | Миграции и начальный контент вручную (`--force` заменяет контент в БД на seed-data.ts) |
 | `pnpm generate-images` | Картинки расписаний и тарифов в `media/generated` |
 
 ## Сертификаты

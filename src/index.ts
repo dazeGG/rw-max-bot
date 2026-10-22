@@ -4,6 +4,7 @@ import { config } from './config';
 import { ContentCache } from './content/repository';
 import { pool } from './db';
 import { acquireInstanceLock } from './db/instance-lock';
+import { setupDatabase } from './db/setup';
 import { DialogEngine } from './dialog/engine';
 import { markSubscriberBlocked, PgSessionStore, saveUnrecognized, touchSubscriber } from './dialog/pg-store';
 import { logger } from './logger';
@@ -17,6 +18,12 @@ if (!lock) {
 	logger.error('Another bot instance is already running for this database, exiting');
 	await pool.end();
 	process.exit(1);
+}
+
+const seeded = await setupDatabase();
+
+if (seeded > 0) {
+	logger.info('Database was empty, initial content loaded', { nodes: seeded });
 }
 
 const content = new ContentCache();
