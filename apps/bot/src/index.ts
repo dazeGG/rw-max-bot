@@ -72,19 +72,26 @@ if (!lease) {
 	process.once('SIGINT', () => void shutdown());
 	process.once('SIGTERM', () => void shutdown());
 
-	if (config.webhook) {
-		logger.info('Starting bot in webhook mode', { domain: config.webhook.domain, port: config.webhook.port });
-		await bot.start({
-			mode: 'webhook',
-			options: {
-				domain: config.webhook.domain,
-				path: config.webhook.path,
-				secret: config.webhook.secret,
-				port: config.webhook.port,
-			},
-		});
-	} else {
-		logger.info('Starting bot in polling mode');
-		await bot.start({ mode: 'polling' });
+	try {
+		if (config.webhook) {
+			logger.info('Starting bot in webhook mode', { domain: config.webhook.domain, port: config.webhook.port });
+			await bot.start({
+				mode: 'webhook',
+				options: {
+					domain: config.webhook.domain,
+					path: config.webhook.path,
+					secret: config.webhook.secret,
+					port: config.webhook.port,
+				},
+			});
+		} else {
+			// Polling снимает все подписки на вебхук: с боевым токеном локально так запускать нельзя
+			logger.info('Starting bot in polling mode');
+			await bot.start({ mode: 'polling' });
+		}
+	} catch (error) {
+		// Например, MAX не принял адрес вебхука. Аренду отпускаем сразу, чтобы перезапуск не ждал ее истечения
+		logger.error('Bot start failed', { error: errorMessage(error) });
+		await shutdown(1);
 	}
 }

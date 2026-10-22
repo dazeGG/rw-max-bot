@@ -78,18 +78,7 @@ pnpm chat --api                              # контент из запуще�
 
 ## Развертывание на сервере
 
-```bash
-BOT_MODE=webhook
-WEBHOOK_DOMAIN=https://max-bot.rw-y.ru
-WEBHOOK_PATH=/webhook
-WEBHOOK_SECRET=<случайная строка>
-PORT=3000                      # вебхук бота: nginx проксирует /webhook → 3000
-API_PORT=3001                  # nginx проксирует /api → 3001; /internal наружу не публикуется
-ADMIN_COOKIE_SECURE=true
-```
-
-Админка собирается `pnpm --filter @rw/admin build` в `apps/admin/dist` и раздается nginx как статика.
-При запуске бот сам регистрирует подписку на вебхук в MAX.
+Docker Compose (PostgreSQL, API, бот в режиме webhook, Caddy с HTTPS) и скрипты выкладки — в [deploy/](deploy/README.md).
 
 ## Команды
 

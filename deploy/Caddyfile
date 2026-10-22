@@ -1,0 +1,34 @@
+# Caddy сам получает и продлевает сертификат Let's Encrypt для DOMAIN (нужны открытые 80 и 443)
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Вебхук MAX. Подлинность запроса бот проверяет сам по заголовку X-Max-Bot-Api-Secret
+	handle /webhook {
+		reverse_proxy bot:3000
+	}
+
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	# Запросы бота к API ходят внутри docker-сети, снаружи их нет
+	handle /internal/* {
+		respond 404
+	}
+
+	# Админка: SPA, неизвестные пути отдают index.html
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
