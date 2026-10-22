@@ -70,10 +70,25 @@ const phraseRecall = (tree: ContentTree, queryStems: string[], phrase: IndexedPh
 // Точное совпадение с названием или синонимом весит больше любого частичного (максимум частичного — 1)
 export const EXACT_SCORE = 1.2;
 
-export const scoreNode = (tree: ContentTree, node: ContentNode, key: string, queryStems: string[]): number => {
+// Вопрос вместе с контекстом дает фразу целиком: в разделе «Трансфер» «расписание» — это «Расписание трансфера».
+// Вопрос должен назвать то, чего в контексте нет, иначе «трансфер» в «Трансфере» совпал бы с любым пунктом
+const completesPhrase = (phrase: IndexedPhrase, queryStems: string[], context: Set<string>): boolean => {
+	const missing = phrase.stems.filter(p => !context.has(p));
+
+	return missing.length > 0 &&
+		missing.every(p => queryStems.some(q => stemsMatch(q, p))) &&
+		queryStems.every(q => phrase.stems.some(p => stemsMatch(q, p)));
+};
+
+// context — основы слов раздела, в котором идет разговор (для его пунктов)
+export const scoreNode = (tree: ContentTree, node: ContentNode, key: string, queryStems: string[], context?: Set<string>): number => {
 	const phrases = tree.phrasesOf(node);
 
 	if (key !== '' && phrases.some(phrase => phrase.key === key)) {
+		return EXACT_SCORE;
+	}
+
+	if (context && queryStems.length > 0 && phrases.some(phrase => completesPhrase(phrase, queryStems, context))) {
 		return EXACT_SCORE;
 	}
 
@@ -95,13 +110,20 @@ export const scoreNode = (tree: ContentTree, node: ContentNode, key: string, que
 	return recall * 0.6 + precision * 0.4;
 };
 
-// bonus — прибавка за контекст: пункты текущего раздела вероятнее, чем раздел из другой ветки
-export const rank = (tree: ContentTree, nodes: ContentNode[], text: string, bonus: (node: ContentNode) => number = () => 0): Candidate[] => {
+// bonus — прибавка за контекст: пункты текущего раздела вероятнее, чем раздел из другой ветки.
+// contextOf — основы слов раздела, которые дополняют короткий вопрос к пункту (см. completesPhrase)
+export const rank = (
+	tree: ContentTree,
+	nodes: ContentNode[],
+	text: string,
+	bonus: (node: ContentNode) => number = () => 0,
+	contextOf: (node: ContentNode) => Set<string> | undefined = () => undefined,
+): Candidate[] => {
 	const queryStems = stems(text);
 	const key = phraseKey(text);
 
 	return nodes
-		.map(node => ({ node, score: scoreNode(tree, node, key, queryStems) }))
+		.map(node => ({ node, score: scoreNode(tree, node, key, queryStems, contextOf(node)) }))
 		.filter(candidate => candidate.score > 0)
 		.map(candidate => ({ ...candidate, score: candidate.score + bonus(candidate.node) }))
 		// При равных баллах выигрывает более общий раздел

@@ -16,6 +16,8 @@ let engine: DialogEngine;
 
 const currentCode = async () => tree.get((await sessions.get(user.id)).nodeId)?.code;
 const say = (text: string) => engine.handle(user, { type: 'text', text });
+// Варианты из нумерованного списка в сообщении («2. Талон на трансфер» → «Талон на трансфер»)
+const options = (text: string) => text.split('\n').filter(line => /^\d+\. /.test(line)).map(line => line.replace(/^\d+\. /, ''));
 
 beforeEach(async () => {
 	sessions = new MemorySessionStore();
@@ -54,11 +56,38 @@ describe('уточняющие вопросы, как в чат-боте РЖД'
 		const [question] = await say('хочу сдать билет');
 
 		expect(await currentCode()).toBe('refund');
-		expect(question.text).toContain('• Билет на поезд');
-		expect(question.text).toContain('• Талон на трансфер');
+		expect(options(question.text)).toContain('Билет на поезд');
+		expect(options(question.text)).toContain('Талон на трансфер');
 
 		await say('трансфер');
 		expect(await currentCode()).toBe('transfer-refund');
+	});
+
+	it.each([
+		['расписание', 'transfer-schedule'],
+		['тарифы', 'transfer-tariffs'],
+		['возврат', 'transfer-refund'],
+		['льготы', 'transfer-privileges'],
+	])('короткий вопрос внутри раздела дополняется им: «%s» в «Трансфере» → %s', async (text, code) => {
+		await say('трансфер');
+		await say(text);
+
+		expect(await currentCode()).toBe(code);
+	});
+
+	it('после ответа соседний пункт тоже понимается коротко: «тарифы» после расписания трансфера', async () => {
+		await say('трансфер');
+		await say('расписание');
+		await say('тарифы');
+
+		expect(await currentCode()).toBe('transfer-tariffs');
+	});
+
+	it('вопрос из другой ветки внутри раздела не перехватывается', async () => {
+		await say('трансфер');
+		await say('расписание поездов');
+
+		expect(await currentCode()).toBe('schedule');
 	});
 
 	it('короткий ответ учитывает контекст: «якутск» после «купить билет» → касса в Якутске', async () => {
@@ -72,8 +101,8 @@ describe('уточняющие вопросы, как в чат-боте РЖД'
 		const [reply] = await say('благовещенск');
 
 		expect(reply.text).toContain(SEED_SETTINGS['text.didYouMean']);
-		expect(reply.text).toContain('• Благовещенск');
-		expect(reply.text).toContain('• Поезд №317/№318 | Нижний Бестях – Благовещенск');
+		expect(options(reply.text)).toContain('Благовещенск');
+		expect(options(reply.text)).toContain('Поезд №317/№318 | Нижний Бестях – Благовещенск');
 
 		await say('поезд');
 		expect(await currentCode()).toBe('schedule-train-317318');
@@ -84,6 +113,40 @@ describe('уточняющие вопросы, как в чат-боте РЖД'
 		await say('как провозить животных');
 
 		expect(await currentCode()).toBe('faq-pets');
+	});
+});
+
+describe('ответ номером варианта', () => {
+	it('номер выбирает пункт из списка текущего раздела', async () => {
+		const [transfer] = await say('трансфер');
+
+		expect(options(transfer.text)[0]).toBe('Расписание трансфера');
+
+		await say('1');
+		expect(await currentCode()).toBe('transfer-schedule');
+	});
+
+	it('номер выбирает из вариантов уточнения', async () => {
+		const [question] = await say('благовещенск');
+		const index = options(question.text).indexOf('Поезд №317/№318 | Нижний Бестях – Благовещенск');
+
+		await say(`${index + 1}.`);
+		expect(await currentCode()).toBe('schedule-train-317318');
+	});
+
+	it('после «не понял» номер выбирает раздел главного меню', async () => {
+		const [fallback] = await say('асдфыва');
+		const index = options(fallback.text).indexOf('Трансфер');
+
+		await say(String(index + 1));
+		expect(await currentCode()).toBe('transfer');
+	});
+
+	it('номер вне списка не выбирает случайный пункт', async () => {
+		await say('трансфер');
+		await say('99');
+
+		expect(await currentCode()).not.toMatch(/^transfer-/);
 	});
 });
 
@@ -116,7 +179,7 @@ describe('навигация текстом', () => {
 	it('варианты ответа и ссылки перечисляются в тексте', async () => {
 		const [rules] = await say('правила перевозки');
 
-		expect(rules.text).toContain('• <a href="https://rw-y.ru/passengers/rules#1">Оформление перевозки пассажиров</a>');
+		expect(options(rules.text)).toContain('<a href="https://rw-y.ru/passengers/rules#1">Оформление перевозки пассажиров</a>');
 	});
 
 	it('«назад» после ссылки возвращает в раздел, где она лежит', async () => {
@@ -167,7 +230,7 @@ describe('непонятный ввод (ТЗ п. 3.9)', () => {
 		const [reply] = await say('асдфыва');
 
 		expect(reply.text).toContain(SEED_SETTINGS['text.fallback']);
-		expect(reply.text).toContain('• Купить билет');
+		expect(options(reply.text)).toContain('Купить билет');
 		expect(unrecognized).toEqual([{ userId: user.id, text: 'асдфыва', nodeId: tree.root.id }]);
 	});
 });
