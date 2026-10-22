@@ -1,0 +1,18 @@
+{
+  "name": "@rw/bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Бот для MAX: принимает сообщения и отвечает, данные берет из API",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "chat": "tsx src/cli/chat.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@maxhub/max-bot-api": "^1.0.2",
+    "@rw/core": "workspace:*",
+    "@rw/runtime": "workspace:*"
+  }
+}

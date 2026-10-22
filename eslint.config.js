@@ -33,11 +33,11 @@ const commonRules = {
 export default defineConfig([
 	{
 		ignores: [
-			'node_modules/**',
-			'generated/**',
+			'**/node_modules/**',
+			'**/dist/**',
 			'logs/**',
-			'static/**',
-			'drizzle/**',
+			'media/**',
+			'packages/db/drizzle/**',
 		],
 	},
 	{
@@ -67,4 +67,10 @@ export default defineConfig([
 			}],
 		},
 	}),
+	{
+		files: ['apps/admin/src/**/*.{ts,tsx}'],
+		languageOptions: {
+			globals: globals.browser,
+		},
+	},
 ]);

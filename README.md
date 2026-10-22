@@ -3,8 +3,27 @@
 Чат-бот АО «АК «ЖДЯ» для мессенджера MAX. Отвечает на вопросы, написанные своими словами:
 «как купить билет», «хочу сдать билет» → «билет на поезд или талон на трансфер?» → «трансфер».
 
-Весь контент (тексты, варианты ответа, синонимы, картинки, файлы) хранится в PostgreSQL и перечитывается каждые
-`CONTENT_REFRESH_SECONDS` секунд — правки применяются без перезапуска.
+Весь контент (тексты, варианты ответа, синонимы, картинки, файлы) хранится в PostgreSQL. Бот перечитывает его каждые
+`CONTENT_REFRESH_SECONDS` секунд — правки из админки применяются без перезапуска.
+
+## Устройство (монорепозиторий pnpm)
+
+```
+apps/
+  api/       Fastify: единственный, кто работает с БД. /internal/* — для бота (по INTERNAL_API_TOKEN),
+             /api/* — для админки (вход по логину и паролю, cookie)
+  bot/       MAX: принимает сообщения и отвечает. Данные берет из API, контент держит в кеше
+  admin/     React + Vite: дерево разделов (пока только просмотр)
+packages/
+  core/      контент (дерево, начальный контент seed-data.ts) и диалоговый движок; без БД и сети
+  db/        схема Drizzle, миграции (drizzle/), заливка начального контента
+  runtime/   общий .env, логгер (logs/<приложение>.log)
+tools/
+  image-generator/   картинки расписаний и тарифов в media/generated
+```
+
+Если API недоступен, бот продолжает отвечать по последнему загруженному контенту, а сессии держит в памяти.
+Одновременно работает только один бот: он держит аренду в API, второй экземпляр завершается.
 
 ## Быстрый старт (локально)
 
@@ -12,20 +31,22 @@
 
 ```bash
 pnpm install
-cp .env.example .env          # вписать BOT_TOKEN
+cp .env.example .env          # вписать BOT_TOKEN и INTERNAL_API_TOKEN (любая длинная случайная строка)
 docker compose up -d          # PostgreSQL на localhost:5433
-pnpm dev                      # бот в режиме polling: сервер и HTTPS не нужны
+pnpm admin:create admin       # пользователь админки (пароль спросит в консоли)
+pnpm dev                      # API :3001, бот (polling) и админка http://localhost:5173
 ```
 
-При запуске бот сам применяет миграции и, если БД пустая, заливает начальный контент из `src/content/seed-data.ts`.
-Уже заполненную БД он не трогает: правки из веб-панели сохраняются.
+При запуске API сам применяет миграции и, если БД пустая, заливает начальный контент из
+`packages/core/src/content/seed-data.ts`. Уже заполненную БД он не трогает: правки из админки сохраняются.
+Приложения можно запускать и по отдельности: `pnpm dev:api`, `pnpm dev:bot`, `pnpm dev:admin`.
 
 ### Без токена: симулятор чата
 
 ```bash
 pnpm chat                                    # интерактивно
 pnpm chat "как купить билет" "якутск"        # прогнать реплики
-pnpm chat --db                               # контент из БД, а не из seed-data.ts
+pnpm chat --api                              # контент из запущенного API, а не из seed-data.ts
 ```
 
 - текст — сообщение пользователя;
@@ -62,25 +83,29 @@ BOT_MODE=webhook
 WEBHOOK_DOMAIN=https://max-bot.rw-y.ru
 WEBHOOK_PATH=/webhook
 WEBHOOK_SECRET=<случайная строка>
-PORT=3000                      # nginx проксирует 443 → 3000
+PORT=3000                      # вебхук бота: nginx проксирует /webhook → 3000
+API_PORT=3001                  # nginx проксирует /api → 3001; /internal наружу не публикуется
+ADMIN_COOKIE_SECURE=true
 ```
 
+Админка собирается `pnpm --filter @rw/admin build` в `apps/admin/dist` и раздается nginx как статика.
 При запуске бот сам регистрирует подписку на вебхук в MAX.
 
 ## Команды
 
 | Команда | Что делает |
 |---------|------------|
-| `pnpm dev` / `pnpm start` | Запуск бота |
+| `pnpm dev` | API, бот и админка вместе (`dev:api`, `dev:bot`, `dev:admin` — по отдельности) |
 | `pnpm chat` | Симулятор чата |
+| `pnpm admin:create <логин> [--role admin|editor]` | Создать пользователя админки или сменить пароль |
 | `pnpm test` | Тесты |
 | `pnpm typecheck`, `pnpm lint` | Проверки |
-| `pnpm db:generate` | Миграция после изменения `src/db/schema.ts` |
+| `pnpm db:generate` | Миграция после изменения `packages/db/src/schema.ts` |
 | `pnpm db:migrate`, `pnpm db:seed [--force]` | Миграции и начальный контент вручную (`--force` заменяет контент в БД на seed-data.ts) |
 | `pnpm generate-images` | Картинки расписаний и тарифов в `media/generated` |
 
 ## Сертификаты
 
 API MAX подписан сертификатом НУЦ Минцифры (Russian Trusted Root CA), которого нет в Node.js.
-Сертификаты лежат в `certs/` и подключаются только для процесса бота (`src/tls.ts`).
-На Node.js < 22.19 запускайте с `NODE_EXTRA_CA_CERTS=certs/russian_trusted_root_ca.pem`.
+Сертификаты лежат в `apps/bot/certs/` и подключаются только для процесса бота (`apps/bot/src/tls.ts`).
+На Node.js < 22.19 запускайте бота с `NODE_EXTRA_CA_CERTS=<абсолютный путь к apps/bot/certs/russian_trusted_root_ca.pem>`.
