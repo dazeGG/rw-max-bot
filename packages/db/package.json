@@ -1,0 +1,27 @@
+{
+  "name": "@rw/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Схема PostgreSQL, миграции и начальный контент. Используется только API",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "tsx src/migrate.ts",
+    "seed": "tsx src/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rw/core": "workspace:*",
+    "@rw/runtime": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "dotenv": "^18.0.8",
+    "drizzle-kit": "^0.31.11"
+  }
+}

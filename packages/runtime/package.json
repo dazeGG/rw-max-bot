@@ -1,0 +1,18 @@
+{
+  "name": "@rw/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Общее для серверных приложений: .env, пути, логгер",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./env": "./src/env.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.8",
+    "winston": "^3.19.0"
+  }
+}

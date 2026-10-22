@@ -1,0 +1,13 @@
+{
+  "name": "@rw/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Контент и диалоговый движок бота: без БД и сети, общий для бота, API и админки",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
