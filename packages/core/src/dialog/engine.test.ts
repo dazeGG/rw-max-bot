@@ -97,6 +97,18 @@ describe('уточняющие вопросы, как в чат-боте РЖД'
 		expect(await currentCode()).toBe('buy-yakutsk');
 	});
 
+	it.each([
+		['онлайн', 'buy-online'],
+		['через интернет', 'buy-online'],
+		['в кассе', 'buy-offline'],
+		['оффлайн', 'buy-offline'],
+	])('«купить билет» → «%s» → %s', async (answer, code) => {
+		await say('купить билет');
+		await say(answer);
+
+		expect(await currentCode()).toBe(code);
+	});
+
 	it('при равных вариантах бот переспрашивает и понимает ответ на уточнение', async () => {
 		const [reply] = await say('благовещенск');
 
