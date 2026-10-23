@@ -19,6 +19,16 @@ const MAX_SUGGESTIONS = 3;
 
 const BACK_WORDS = new Set(['назад', 'вернуться', 'вернуться назад', 'обратно']);
 const HOME_WORDS = new Set(['меню', 'главное меню', 'в начало', 'начало', 'старт', 'start', 'в меню', 'вернуться в меню']);
+// Ответы на «Могу ли я ещё Вам чем-то помочь?» после конечного ответа
+const YES_WORDS = new Set([
+	'да', 'ага', 'конечно', 'да конечно', 'можете', 'да можете', 'есть', 'да есть', 'есть вопрос', 'да есть вопрос',
+	'есть еще вопрос', 'еще вопрос', 'у меня есть вопрос', 'у меня еще вопрос', 'помогите', 'да помогите',
+]);
+const NO_WORDS = new Set([
+	'нет', 'нет спасибо', 'спасибо нет', 'спасибо', 'спасибо большое', 'большое спасибо', 'благодарю', 'нет благодарю',
+	'не надо', 'не нужно', 'ничего', 'больше ничего', 'нет ничего', 'все', 'все спасибо', 'спасибо все', 'это все',
+	'понятно', 'понятно спасибо', 'спасибо понятно', 'все понятно', 'все понятно спасибо', 'спасибо все понятно',
+]);
 
 type Choice =
 	| { kind: 'node'; node: ContentNode; }
@@ -60,6 +70,20 @@ export class DialogEngine {
 
 		if (HOME_WORDS.has(rest)) {
 			return this.open(user, tree, tree.root);
+		}
+
+		// После конечного ответа бот спросил «Могу ли я ещё Вам чем-то помочь?»: «да» — список тем, «нет» — прощание.
+		// Новый вопрос вместо «да» обрабатывается как обычно
+		if (this.isFinal(tree, current) &&!session.choices?.length) {
+			if (YES_WORDS.has(rest)) {
+				await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
+				return [{ text: this.withOptions(tree, tree.settings['text.askMore'], tree.visibleChildren(tree.root)) }];
+			}
+
+			if (NO_WORDS.has(rest)) {
+				await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
+				return [{ text: tree.settings['text.goodbye'] }];
+			}
 		}
 
 		// Номер варианта из последнего списка: «2» — второй пункт
@@ -162,16 +186,22 @@ export class DialogEngine {
 
 	private async open (user: DialogUser, tree: ContentTree, node: ContentNode): Promise<Reply[]> {
 		const target = tree.resolve(node);
-
-		// Ссылка: в сессии остается сама ссылка, чтобы «назад» вернул в раздел, где она лежит
-		if (target.type === 'link') {
-			await this.sessions.set(user.id, { nodeId: target.id, choices: [] });
-			return [{ text: target.text ?? this.optionLine(tree, node) }];
-		}
+		// Конец цепочки: отдельным сообщением бот спрашивает, нужно ли что-то еще
+		const anythingElse: Reply[] = this.isFinal(tree, target) ? [{ text: tree.settings['text.anythingElse'] }] : [];
 
 		await this.sessions.set(user.id, { nodeId: target.id, choices: [] });
 
-		return [this.render(tree, target)];
+		// Ссылка: в сессии остается сама ссылка, чтобы «назад» вернул в раздел, где она лежит
+		if (target.type === 'link') {
+			return [{ text: target.text ?? this.optionLine(tree, node) }, ...anythingElse];
+		}
+
+		return [this.render(tree, target), ...anythingElse];
+	}
+
+	// Конечный ответ — раздел без вариантов ответа или ссылка
+	private isFinal (tree: ContentTree, node: ContentNode): boolean {
+		return node.id !== tree.root.id && (node.type === 'link' || tree.visibleChildren(node).length === 0);
 	}
 
 	render (tree: ContentTree, node: ContentNode): Reply {
@@ -184,13 +214,17 @@ export class DialogEngine {
 		};
 	}
 
-	// Варианты ответа перечисляются в тексте сообщения: пользователь отвечает своими словами или номером
+	// Варианты ответа перечисляются в тексте сообщения: пользователь отвечает своими словами или номером.
+	// Вопрос («…интересует?», «…по темам:») и его варианты — один блок, без пустой строки между ними;
+	// после адреса или примечания список ссылок отделяется пустой строкой
 	private withOptions (tree: ContentTree, text: string, options: ContentNode[]): string {
 		if (options.length === 0) {
 			return text;
 		}
 
-		return `${text}\n\n${options.map((option, i) => `${i + 1}. ${this.optionLine(tree, option)}`).join('\n')}`;
+		const separator = /[?:]\s*$/.test(text) ? '\n' : '\n\n';
+
+		return `${text}${separator}${options.map((option, i) => `${i + 1}. ${this.optionLine(tree, option)}`).join('\n')}`;
 	}
 
 	// Список из последнего сообщения: варианты уточнения или пункты текущего раздела

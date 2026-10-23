@@ -207,6 +207,41 @@ describe('навигация текстом', () => {
 	});
 });
 
+describe('«Могу ли я ещё Вам чем-то помочь?» в конце цепочки', () => {
+	it('после конечного ответа и ссылки — отдельным сообщением, после вопроса с вариантами — нет', async () => {
+		const buy = await say('купить билет');
+		expect(buy).toHaveLength(1);
+
+		const office = await say('якутск');
+		expect(office).toHaveLength(1);
+
+		const link = await say('2гис');
+		expect(link.map(reply => reply.text)).toEqual([expect.stringContaining('2gis'), SEED_SETTINGS['text.anythingElse']]);
+	});
+
+	it('«да» — список тем, «нет, спасибо» — прощание', async () => {
+		await say('питание в пути');
+		const [more] = await say('да');
+
+		expect(more.text).toContain(SEED_SETTINGS['text.askMore']);
+		expect(options(more.text)).toContain('Купить билет');
+		expect(await currentCode()).toBe('root');
+
+		await say('питание в пути');
+		const replies = await say('Нет, спасибо!');
+
+		expect(replies).toEqual([{ text: SEED_SETTINGS['text.goodbye'] }]);
+		expect(await currentCode()).toBe('root');
+	});
+
+	it('новый вопрос вместо «да» обрабатывается как обычно', async () => {
+		await say('питание в пути');
+		await say('где купить билет');
+
+		expect(await currentCode()).toBe('buy');
+	});
+});
+
 describe('целостность дерева', () => {
 	it('goto в выключенный раздел не показывается', () => {
 		const nodes = flattenSeed().map(n => n.code === 'faq-refund' ? { ...n, isActive: false } : n);

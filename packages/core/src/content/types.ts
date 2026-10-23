@@ -31,14 +31,20 @@ export type ContentNode = {
 export type SettingKey =
 	| 'text.fallback'
 	| 'text.didYouMean'
-	| 'text.greeting';
+	| 'text.greeting'
+	| 'text.anythingElse'
+	| 'text.askMore'
+	| 'text.goodbye';
 
 export type Settings = Record<SettingKey, string>;
 
 export const DEFAULT_SETTINGS: Settings = {
-	'text.fallback': 'К сожалению, я не понял вопрос. Попробуйте сформулировать его иначе. Я могу подсказать по темам:',
+	'text.fallback': 'К сожалению, я не понял вопрос. Попробуйте сформулировать его иначе.\n\nЯ могу подсказать по темам:',
 	'text.didYouMean': 'Уточните, пожалуйста, что Вас интересует:',
 	'text.greeting': 'Здравствуйте! Я буду помогать в решении Вашего вопроса.',
+	'text.anythingElse': 'Могу ли я ещё Вам чем-то помочь?',
+	'text.askMore': 'Задайте вопрос своими словами.\n\nЯ могу подсказать по темам:',
+	'text.goodbye': 'Спасибо за обращение! Если появятся вопросы, пишите.',
 };
 
 export const ROOT_CODE = 'root';
