@@ -34,6 +34,8 @@ describe('свободный текст ведет в нужный раздел'
 		['сколько стоит детский билет', 'faq-child'],
 		['сколько стоит билет для ребенка', 'faq-child'],
 		['сколько стоит билет', 'tariffs'],
+		['нужен дубликат чека', 'paid-services'],
+		['справка о стоимости проезда', 'faq-certificate'],
 		['как купить билет дешевле', 'faq-cheaper'],
 		['можно ли с собакой', 'faq-pets'],
 		['где камера хранения', 'faq-storage'],
@@ -264,10 +266,10 @@ describe('целостность дерева', () => {
 	});
 
 	it('HTML в названии экранируется', async () => {
-		const nodes = flattenSeed().map(n => n.code === 'tariffs' ? { ...n, title: 'Багаж < 10 кг & A', text: null, synonyms: ['тарифы'] } : n);
+		const nodes = flattenSeed().map(n => n.code === 'support' ? { ...n, title: 'Багаж < 10 кг & A', text: null, synonyms: ['поддержка'] } : n);
 		const local = new DialogEngine(() => new ContentTree(nodes, SEED_SETTINGS), new MemorySessionStore());
 
-		const [reply] = await local.handle(user, { type: 'text', text: 'тарифы' });
+		const [reply] = await local.handle(user, { type: 'text', text: 'поддержка' });
 		expect(reply.text).toBe('<b>Багаж &lt; 10 кг &amp; A</b>');
 	});
 });
@@ -284,10 +286,14 @@ describe('непонятный ввод (ТЗ п. 3.9)', () => {
 
 describe('вложения', () => {
 	it('раздел с картинкой и раздел с файлом', async () => {
-		const [tariffs] = await say('тарифы');
-		const [forgotten] = await say('забытые вещи');
+		const nodes = flattenSeed().map(n => n.code === 'support' ? { ...n, file: 'files/support.pdf', fileName: 'Контакты.pdf' } : n);
+		const local = new DialogEngine(() => new ContentTree(nodes, SEED_SETTINGS), new MemorySessionStore());
+
+		await say('тарифы');
+		const [tariffs] = await say('ждя');
+		const [support] = await local.handle(user, { type: 'text', text: 'служба поддержки' });
 
 		expect(tariffs.image).toBe('generated/tariffs.jpg');
-		expect(forgotten.file).toEqual({ path: 'files/forgotten-items-application.pdf', name: 'Заявка на поиск забытых вещей.pdf' });
+		expect(support.file).toEqual({ path: 'files/support.pdf', name: 'Контакты.pdf' });
 	});
 });
