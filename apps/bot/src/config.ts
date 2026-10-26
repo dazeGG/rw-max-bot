@@ -1,5 +1,18 @@
 import '@rw/runtime/env';
 
+import fs from 'node:fs';
+
+import { repoPath } from '@rw/runtime';
+
+// Выложенный коммит: deploy.sh пишет его в REVISION, локально файла нет
+const readRevision = (): string | null => {
+	try {
+		return fs.readFileSync(repoPath('REVISION'), 'utf8').trim() || null;
+	} catch {
+		return null;
+	}
+};
+
 const required = (name: string): string => {
 	const value = process.env[name];
 
@@ -34,4 +47,5 @@ export const config = {
 		}
 		: null,
 	contentRefreshSeconds: refreshSeconds,
+	revision: readRevision(),
 } as const;

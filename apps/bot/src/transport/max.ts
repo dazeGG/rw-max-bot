@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Bot } from '@maxhub/max-bot-api';
 import type { Context } from '@maxhub/max-bot-api';
 
-import type { DialogEngine, DialogInput, DialogUser, Reply } from '@rw/core';
+import type { DialogEngine, DialogEventRecord, DialogInput, DialogUser, Reply } from '@rw/core';
 import { errorMessage, repoPath } from '@rw/runtime';
 
 import { logger } from '../logger';
@@ -13,14 +13,32 @@ import { logger } from '../logger';
 const MEDIA_DIR = repoPath('media');
 
 type MaxUser = NonNullable<Context['user']>;
+type MaxUpdate = Context['update'];
 type SendExtra = NonNullable<Parameters<Context['reply']>[1]>;
 type Attachment = NonNullable<SendExtra['attachments']>[number];
 type UploadedAttachment = { toJson: () => unknown; };
 
+// Как ушел каждый ответ: картинка из кеша, перезагруженная или не отправленная; файл отправлен или нет
+type Delivery = {
+	image?: 'cached' | 'reuploaded' | 'dropped';
+	file?: 'sent' | 'failed';
+};
+
+// Запись для статистики без версии контента: ее добавляет тот, кто знает текущий контент
+export type TransportEvent = Omit<DialogEventRecord, 'contentVersion'>;
+
 export type MaxBotHooks = {
 	onUser?: (user: DialogUser) => Promise<void>;
 	onBlocked?: (userId: number) => Promise<void>;
+	onEvent?: (event: TransportEvent) => void;
+	// Выложенный коммит: попадает в каждую запись статистики
+	revision?: string | null;
 };
+
+// Версия формата data в dialog_events: менять, если поля переименовываются или меняют смысл
+const EVENT_FORMAT = 1;
+// Эти обновления бот обрабатывает как диалог, остальные только записывает в статистику
+const DIALOG_UPDATES = new Set(['message_created', 'bot_started']);
 
 const toDialogUser = (user: MaxUser): DialogUser => ({
 	id: user.user_id,
@@ -95,7 +113,7 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 		return attachment.toJson() as Attachment;
 	};
 
-	const sendReply = async (userId: number, reply: Reply) => {
+	const sendReply = async (userId: number, reply: Reply, delivery: Delivery) => {
 		const sendWith = (attachments: Attachment[]) =>
 			bot.api.sendMessageToUser(userId, reply.text, { format: 'html', disable_link_preview: true, attachments });
 
@@ -107,51 +125,108 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 		// Сохраненный токен картинки мог устареть: перезагружаем и, если не вышло, отправляем без картинки
 		try {
 			await sendWith([await uploadImage(reply.image)]);
+			delivery.image = 'cached';
 		} catch (error) {
 			logger.warn('Send with cached image failed, re-uploading', { image: reply.image, error: errorMessage(error) });
 
 			try {
 				await sendWith([await uploadImage(reply.image, true)]);
+				delivery.image = 'reuploaded';
 			} catch (retryError) {
 				logger.error('Image send failed, sending text only', { image: reply.image, error: errorMessage(retryError) });
 				await sendWith([]);
+				delivery.image = 'dropped';
 			}
 		}
 	};
 
-	const send = async (userId: number, replies: Reply[]) => {
+	const send = async (userId: number, replies: Reply[], deliveries: Delivery[]) => {
 		for (const reply of replies) {
-			await sendReply(userId, reply);
+			const delivery: Delivery = {};
+			deliveries.push(delivery);
+
+			await sendReply(userId, reply, delivery);
 
 			// Файл отдельным сообщением после текста
 			if (reply.file) {
 				try {
 					await bot.api.sendMessageToUser(userId, '', { attachments: [await uploadFile(reply.file.path, reply.file.name)] });
+					delivery.file = 'sent';
 				} catch (error) {
 					logger.error('File send failed', { file: reply.file.path, error: errorMessage(error) });
+					delivery.file = 'failed';
 				}
 			}
 		}
 	};
 
-	const handle = async (user: MaxUser, input: DialogInput) => {
+	// Запись не должна задерживать ответ и ронять обработку
+	const record = (event: Omit<TransportEvent, 'data'> & { data: Record<string, unknown>; }) => {
+		try {
+			hooks.onEvent?.({ ...event, data: { v: EVENT_FORMAT, channel: 'max', revision: hooks.revision ?? null, ...event.data } });
+		} catch (error) {
+			logger.error('Event record failed', { type: event.type, error: errorMessage(error) });
+		}
+	};
+
+	const handle = async (user: MaxUser, input: DialogInput, update: MaxUpdate, receivedAt: number) => {
 		const dialogUser = toDialogUser(user);
 
 		// Учет подписчиков не должен задерживать ответ
 		void hooks.onUser?.(dialogUser).catch(error =>
 			logger.error('Subscriber update failed', { userId: dialogUser.id, error: errorMessage(error) }));
 
-		await send(user.user_id, await engine.handle(dialogUser, input));
+		const startedAt = Date.now();
+		const { replies, event } = await engine.process(dialogUser, input);
+		const processedAt = Date.now();
+		const deliveries: Delivery[] = [];
+		let sendError: string | undefined;
+
+		try {
+			await send(user.user_id, replies, deliveries);
+		} catch (error) {
+			sendError = errorMessage(error);
+			throw error;
+		} finally {
+			const message = 'message' in update ? update.message : undefined;
+
+			record({
+				userId: user.user_id,
+				type: event.type,
+				nodeId: event.nodeId,
+				nodeCode: event.nodeCode,
+				text: event.text,
+				raw: update,
+				createdAt: new Date(receivedAt).toISOString(),
+				data: {
+					...event.details,
+					updateType: update.update_type,
+					messageId: message?.body.mid ?? null,
+					attachments: message?.body.attachments?.map(attachment => attachment.type) ?? [],
+					replies,
+					deliveries,
+					...sendError ? { sendError } : {},
+					timing: {
+						// От отправки сообщения в MAX до получения ботом, ожидание в очереди пользователя, разбор, отправка ответов
+						lagMs: receivedAt - update.timestamp,
+						queueMs: startedAt - receivedAt,
+						engineMs: processedAt - startedAt,
+						sendMs: Date.now() - processedAt,
+					},
+				},
+			});
+		}
 	};
 
-	const dispatch = (user: MaxUser | null | undefined, input: DialogInput): Promise<void> => {
+	const dispatch = (user: MaxUser | null | undefined, input: DialogInput, update: MaxUpdate): Promise<void> => {
 		if (!user || user.is_bot) {
 			return Promise.resolve();
 		}
 
+		const receivedAt = Date.now();
 		const previous = queues.get(user.user_id) ?? Promise.resolve();
 		const next = previous
-			.then(() => handle(user, input))
+			.then(() => handle(user, input, update, receivedAt))
 			.catch((error: unknown) => {
 				logger.error('Update handling failed', {
 					userId: user.user_id,
@@ -170,7 +245,26 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 		return next;
 	};
 
-	bot.on('bot_started', ctx => dispatch(ctx.user, { type: 'start' }));
+	// Остальные обновления (бота остановили, сообщение изменили или удалили…) бот не обрабатывает как диалог,
+	// но записывает целиком: по ним тоже можно что-то посчитать
+	bot.use(async (ctx, next) => {
+		if (!DIALOG_UPDATES.has(ctx.updateType) && ctx.user && !ctx.user.is_bot) {
+			record({
+				userId: ctx.user.user_id,
+				type: ctx.updateType,
+				nodeId: null,
+				nodeCode: null,
+				text: null,
+				raw: ctx.update,
+				createdAt: new Date().toISOString(),
+				data: { updateType: ctx.updateType, timing: { lagMs: Date.now() - ctx.update.timestamp } },
+			});
+		}
+
+		await next();
+	});
+
+	bot.on('bot_started', ctx => dispatch(ctx.user, { type: 'start' }, ctx.update));
 
 	bot.on('message_created', async ctx => {
 		const message = ctx.message;
@@ -182,7 +276,7 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 
 		const text = message.body.text?.trim();
 
-		await dispatch(message.sender, text ? { type: 'text', text } : { type: 'start' });
+		await dispatch(message.sender, text ? { type: 'text', text } : { type: 'start' }, ctx.update);
 	});
 
 	bot.on('bot_stopped', async ctx => {

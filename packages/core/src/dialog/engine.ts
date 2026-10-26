@@ -4,7 +4,7 @@ import type { ContentNode } from '../content/types';
 import { rank } from './matcher';
 import type { Candidate } from './matcher';
 import { escapeHtml, stripGreeting } from './text';
-import type { DialogEvents, DialogEventType, DialogInput, DialogUser, Reply, Session, SessionStore } from './types';
+import type { DialogEventDetails, DialogEvents, DialogEventType, DialogInput, DialogResult, DialogUser, Reply, Session, SessionStore } from './types';
 
 // Пороги подобраны на тестовых диалогах (src/dialog/engine.test.ts)
 const THRESHOLD = 0.6;
@@ -16,6 +16,8 @@ const SIBLING_BONUS = 0.1;
 // Если второй кандидат ближе этого зазора к первому, бот переспрашивает
 const AMBIGUITY_GAP = 0.1;
 const MAX_SUGGESTIONS = 3;
+// Сколько лучших кандидатов поиска попадает в статистику
+const MAX_TRACED_CANDIDATES = 5;
 
 const BACK_WORDS = new Set(['назад', 'вернуться', 'вернуться назад', 'обратно']);
 const HOME_WORDS = new Set(['меню', 'главное меню', 'в начало', 'начало', 'старт', 'start', 'в меню', 'вернуться в меню']);
@@ -43,11 +45,15 @@ export class DialogEngine {
 	) {}
 
 	async handle (user: DialogUser, input: DialogInput): Promise<Reply[]> {
+		return (await this.process(user, input)).replies;
+	}
+
+	// Ответ вместе с записью для статистики: как бот понял сообщение
+	async process (user: DialogUser, input: DialogInput): Promise<DialogResult> {
 		const tree = this.getTree();
 
 		if (input.type === 'start') {
-			await this.track(user, 'start', tree.root);
-			return this.open(user, tree, tree.root);
+			return this.result('start', tree.root, null, await this.open(user, tree, tree.root));
 		}
 
 		const session = await this.sessions.get(user.id);
@@ -56,86 +62,101 @@ export class DialogEngine {
 		return this.handleText(user, tree, current, session, input.text);
 	}
 
-	private async handleText (user: DialogUser, tree: ContentTree, current: ContentNode, session: Session, text: string): Promise<Reply[]> {
+	private async handleText (user: DialogUser, tree: ContentTree, current: ContentNode, session: Session, text: string): Promise<DialogResult> {
 		const { greeting, rest } = stripGreeting(text);
 		const greetingReplies: Reply[] = greeting ? [{ text: tree.settings['text.greeting'] }] : [];
+		const shown = this.shownOptions(tree, current, session);
+		const details: DialogEventDetails = {
+			fromNodeId: current.id,
+			fromNodeCode: current.code,
+			shown: shown.map(node => node.code),
+			normalized: rest,
+			greeting,
+		};
+		const done = (type: DialogEventType, node: ContentNode, replies: Reply[], extra: DialogEventDetails = {}) =>
+			this.result(type, node, text, replies, { ...details, ...extra });
 
 		// Чистое приветствие: стартовое сообщение и так начинается с приветствия
 		if (rest === '' || rest === 'start') {
-			await this.track(user, 'start', tree.root, text);
-			return this.open(user, tree, tree.root);
+			return done('start', tree.root, await this.open(user, tree, tree.root));
 		}
 
 		if (BACK_WORDS.has(rest)) {
 			const target = tree.parent(current) ?? tree.root;
-			await this.track(user, 'back', target, text);
-			return this.open(user, tree, target);
+			return done('back', target, await this.open(user, tree, target));
 		}
 
 		if (HOME_WORDS.has(rest)) {
-			await this.track(user, 'menu', tree.root, text);
-			return this.open(user, tree, tree.root);
+			return done('menu', tree.root, await this.open(user, tree, tree.root));
 		}
 
 		// После конечного ответа бот спросил «Могу ли я ещё Вам чем-то помочь?»: «да» — список тем, «нет» — прощание.
 		// Новый вопрос вместо «да» обрабатывается как обычно
 		if (this.isFinal(tree, current) &&!session.choices?.length) {
 			if (YES_WORDS.has(rest)) {
-				await this.track(user, 'more', tree.root, text);
 				await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
-				return [{ text: this.withOptions(tree, tree.settings['text.askMore'], tree.visibleChildren(tree.root)) }];
+				return done('more', tree.root, [{ text: this.withOptions(tree, tree.settings['text.askMore'], tree.visibleChildren(tree.root)) }]);
 			}
 
 			if (NO_WORDS.has(rest)) {
-				await this.track(user, 'goodbye', tree.root, text);
 				await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
-				return [{ text: tree.settings['text.goodbye'] }];
+				return done('goodbye', tree.root, [{ text: tree.settings['text.goodbye'] }]);
 			}
 		}
 
-		// Номер варианта из последнего списка: «2» — второй пункт
-		if (/^\d{1,2}$/.test(rest)) {
-			const option = this.shownOptions(tree, current, session)[Number(rest) - 1];
+		// Номер варианта из последнего списка: «2» — второй пункт. Номер, которого в списке нет, по тексту не ищется:
+		// иначе «5» совпало бы с синонимом «ребенок до 5 лет». Номера поездов (317) — трехзначные, их ищем как текст
+		const number = /^\d{1,2}$/.test(rest) ? Number(rest) : null;
+
+		if (number !== null) {
+			const option = shown[number - 1];
 
 			if (option) {
-				await this.track(user, 'option', tree.resolve(option), text);
-				return this.open(user, tree, option);
+				return done('option', tree.resolve(option), await this.open(user, tree, option), { option: number });
 			}
+
+			details.unmatchedOption = number;
 		}
 
-		const choice = this.choose(tree, current, session, rest);
+		const { choice, ranked }: { choice: Choice; ranked: Candidate[]; } = number === null
+			? this.choose(tree, current, session, rest)
+			: { choice: { kind: 'none' }, ranked: [] };
+		const candidates = ranked.slice(0, MAX_TRACED_CANDIDATES)
+			.map(candidate => ({ code: candidate.node.code, score: Math.round(candidate.score * 1000) / 1000 }));
 
 		switch (choice.kind) {
 		case 'node':
-			await this.track(user, 'answer', tree.resolve(choice.node), text);
-			return [...greetingReplies, ...await this.open(user, tree, choice.node)];
+			return done('answer', tree.resolve(choice.node), [...greetingReplies, ...await this.open(user, tree, choice.node)], { candidates });
 
 		case 'ambiguous':
-			await this.track(user, 'clarify', current, text);
 			await this.sessions.set(user.id, { nodeId: current.id, choices: choice.candidates.map(node => node.id) });
-			return [...greetingReplies, { text: this.withOptions(tree, tree.settings['text.didYouMean'], choice.candidates) }];
+			return done('clarify', current, [...greetingReplies, { text: this.withOptions(tree, tree.settings['text.didYouMean'], choice.candidates) }], {
+				candidates,
+				suggested: choice.candidates.map(node => node.code),
+			});
 
 		case 'none':
-			await this.track(user, 'unrecognized', current, text);
 			await this.events.onUnrecognized?.({ userId: user.id, text, nodeId: current.id });
 			await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
-			return [{ text: this.withOptions(tree, tree.settings['text.fallback'], tree.visibleChildren(tree.root)) }];
+			return done('unrecognized', current, [{ text: this.withOptions(tree, tree.settings['text.fallback'], tree.visibleChildren(tree.root)) }], { candidates });
 		}
 	}
 
-	private async track (user: DialogUser, type: DialogEventType, node: ContentNode, text: string | null = null): Promise<void> {
-		await this.events.onEvent?.({ userId: user.id, type, nodeCode: node.code, text });
+	private result (type: DialogEventType, node: ContentNode, text: string | null, replies: Reply[], details: DialogEventDetails = {}): DialogResult {
+		return { replies, event: { type, nodeId: node.id, nodeCode: node.code, text, details } };
 	}
 
-	private choose (tree: ContentTree, current: ContentNode, session: Session, text: string): Choice {
+	// ranked — кандидаты того поиска, который принял решение (для статистики)
+	private choose (tree: ContentTree, current: ContentNode, session: Session, text: string): { choice: Choice; ranked: Candidate[]; } {
 		// Ответ на «Уточните, пожалуйста…»: сначала среди предложенных вариантов
 		const suggested = (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
 
 		if (suggested.length > 0) {
-			const answer = this.pick(tree, rank(tree, suggested, text), SUGGESTION_THRESHOLD);
+			const ranked = rank(tree, suggested, text);
+			const answer = this.pick(tree, ranked, SUGGESTION_THRESHOLD);
 
 			if (answer.kind === 'node') {
-				return answer;
+				return { choice: answer, ranked };
 			}
 		}
 
@@ -162,7 +183,9 @@ export class DialogEngine {
 		const everywhere = tree.all().filter(node => node.id !== tree.root.id &&
 			(node.type !== 'goto' || offered.has(node.id) || siblings.has(node.id)));
 
-		return this.pick(tree, rank(tree, everywhere, text, bonus, contextOf));
+		const ranked = rank(tree, everywhere, text, bonus, contextOf);
+
+		return { choice: this.pick(tree, ranked), ranked };
 	}
 
 	private pick (tree: ContentTree, ranked: Candidate[], threshold = THRESHOLD): Choice {
@@ -242,12 +265,21 @@ export class DialogEngine {
 		return `${text}${separator}${options.map((option, i) => `${i + 1}. ${this.optionLine(tree, option)}`).join('\n')}`;
 	}
 
-	// Список из последнего сообщения: варианты уточнения или пункты текущего раздела
-	// (после «не понял» сессия стоит в главном меню, и показаны как раз его пункты)
+	// Список, на который ссылается номер в ответе: варианты уточнения или пункты текущего раздела
+	// (после «не понял» сессия стоит в главном меню, и показаны как раз его пункты).
+	// После конечного ответа своего списка нет: номер относится к списку, из которого этот ответ выбрали
 	private shownOptions (tree: ContentTree, current: ContentNode, session: Session): ContentNode[] {
 		const suggested = (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
 
-		return suggested.length > 0 ? suggested : tree.visibleChildren(current);
+		if (suggested.length > 0) {
+			return suggested;
+		}
+
+		const options = tree.visibleChildren(current);
+
+		return options.length === 0 && current.id !== tree.root.id
+			? tree.visibleChildren(tree.parent(current) ?? tree.root)
+			: options;
 	}
 
 	private optionLine (tree: ContentTree, node: ContentNode): string {

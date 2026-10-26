@@ -23,6 +23,8 @@ COPY packages packages
 COPY apps/api apps/api
 COPY apps/bot apps/bot
 COPY media media
+# REVISION (выложенный коммит) пишет deploy.sh; package.json — чтобы COPY не падал, если файла нет
+COPY package.json REVISION* ./
 RUN mkdir -p logs && chown node:node logs
 ENV NODE_ENV=production
 USER node

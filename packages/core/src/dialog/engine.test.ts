@@ -5,14 +5,13 @@ import { ContentTree } from '../content/tree';
 
 import { DialogEngine } from './engine';
 import { MemorySessionStore } from './memory-sessions';
-import type { DialogEvent, UnrecognizedEvent } from './types';
+import type { UnrecognizedEvent } from './types';
 
 const tree = new ContentTree(flattenSeed(), SEED_SETTINGS);
 const user = { id: 42 };
 
 let sessions: MemorySessionStore;
 let unrecognized: UnrecognizedEvent[];
-let events: DialogEvent[];
 let engine: DialogEngine;
 
 const currentCode = async () => tree.get((await sessions.get(user.id)).nodeId)?.code;
@@ -23,11 +22,7 @@ const options = (text: string) => text.split('\n').filter(line => /^\d+\. /.test
 beforeEach(async () => {
 	sessions = new MemorySessionStore();
 	unrecognized = [];
-	events = [];
-	engine = new DialogEngine(() => tree, sessions, {
-		onUnrecognized: event => void unrecognized.push(event),
-		onEvent: event => void events.push(event),
-	});
+	engine = new DialogEngine(() => tree, sessions, { onUnrecognized: event => void unrecognized.push(event) });
 	await engine.handle(user, { type: 'start' });
 });
 
@@ -167,6 +162,33 @@ describe('ответ номером варианта', () => {
 
 		expect(await currentCode()).not.toMatch(/^transfer-/);
 	});
+
+	it('номер вне списка не ищется по тексту: «5» не открывает «детский билет» (синоним «ребенок до 5 лет»)', async () => {
+		await say('купить билет');
+		await say('в кассе');
+		await say('нижний бестях');
+		const [reply] = await say('5');
+
+		expect(await currentCode()).toBe('root');
+		expect(reply.text).toContain(SEED_SETTINGS['text.fallback']);
+	});
+
+	it('номер поезда по-прежнему ищется как текст', async () => {
+		const [reply] = await say('327');
+
+		expect(reply.text).toContain(SEED_SETTINGS['text.didYouMean']);
+		expect(options(reply.text)).toContain('Поезд №327/№328 | Нижний Бестях – Тында');
+	});
+
+	it('после конечного ответа номер выбирает из списка, откуда этот ответ открыли', async () => {
+		await say('купить билет');
+		await say('в кассе');
+		await say('1');
+		expect(await currentCode()).toBe('buy-tommot');
+
+		await say('2');
+		expect(await currentCode()).toBe('buy-aldan');
+	});
 });
 
 describe('навигация текстом', () => {
@@ -303,53 +325,65 @@ describe('вложения', () => {
 	});
 });
 
-describe('журнал событий для статистики', () => {
-	const last = () => events.at(-1);
+describe('запись для статистики', () => {
+	const track = async (text: string) => (await engine.process(user, { type: 'text', text })).event;
+	const id = (code: string) => tree.getByCode(code)!.id;
 
-	it('старт, ответ по тексту, номер варианта, «назад» и «меню»', async () => {
-		expect(events).toEqual([{ userId: user.id, type: 'start', nodeCode: 'root', text: null }]);
+	it('старт', async () => {
+		const { event } = await engine.process(user, { type: 'start' });
 
+		expect(event).toEqual({ type: 'start', nodeId: tree.root.id, nodeCode: 'root', text: null, details: {} });
+	});
+
+	it('ответ по тексту: раздел, откуда пришел пользователь, и кандидаты поиска с баллами', async () => {
+		const event = await track('купить билет');
+
+		expect(event).toMatchObject({ type: 'answer', nodeId: id('buy'), nodeCode: 'buy', text: 'купить билет' });
+		expect(event.details).toMatchObject({ fromNodeCode: 'root', normalized: 'купить билет', greeting: false });
+		expect(event.details.shown).toContain('buy');
+		expect(event.details.candidates?.[0]).toEqual({ code: 'buy', score: expect.any(Number) });
+	});
+
+	it('номер варианта и номер, которого не было в списке', async () => {
 		await say('купить билет');
-		expect(last()).toEqual({ userId: user.id, type: 'answer', nodeCode: 'buy', text: 'купить билет' });
+		expect(await track('2')).toMatchObject({ type: 'option', nodeCode: 'buy-offline', details: { option: 2, shown: ['buy-online', 'buy-offline'] } });
 
-		await say('2');
-		expect(last()).toEqual({ userId: user.id, type: 'option', nodeCode: 'buy-offline', text: '2' });
+		await say('нижний бестях');
+		expect(await track('5')).toMatchObject({ type: 'unrecognized', details: { fromNodeCode: 'buy-bestyakh', shown: ['buy-bestyakh-2gis'], unmatchedOption: 5 } });
+	});
 
-		await say('назад');
-		expect(last()).toMatchObject({ type: 'back', nodeCode: 'buy' });
+	it('«назад» и «меню»', async () => {
+		await say('купить билет');
+		await say('в кассе');
 
-		await say('меню');
-		expect(last()).toMatchObject({ type: 'menu', nodeCode: 'root' });
+		expect(await track('назад')).toMatchObject({ type: 'back', nodeCode: 'buy', details: { fromNodeCode: 'buy-offline' } });
+		expect(await track('меню')).toMatchObject({ type: 'menu', nodeCode: 'root' });
 	});
 
 	it('goto записывается разделом, куда он ведет', async () => {
 		await say('хочу сдать билет');
-		await say('трансфер');
 
-		expect(last()).toMatchObject({ type: 'answer', nodeCode: 'transfer-refund' });
+		expect(await track('трансфер')).toMatchObject({ type: 'answer', nodeCode: 'transfer-refund' });
 	});
 
-	it('уточнение и непонятый ввод — с разделом, где был пользователь', async () => {
-		await say('благовещенск');
-		expect(last()).toMatchObject({ type: 'clarify', nodeCode: 'root', text: 'благовещенск' });
+	it('уточнение — с предложенными вариантами, непонятый ввод — с разделом, где был пользователь', async () => {
+		const clarify = await track('благовещенск');
 
-		await say('асдфыва');
-		expect(last()).toMatchObject({ type: 'unrecognized', nodeCode: 'root', text: 'асдфыва' });
+		expect(clarify).toMatchObject({ type: 'clarify', nodeCode: 'root', text: 'благовещенск' });
+		expect(clarify.details.suggested).toEqual(expect.arrayContaining(['schedule-direct-blagoveshensk', 'schedule-train-317318']));
+
+		expect(await track('асдфыва')).toMatchObject({ type: 'unrecognized', nodeCode: 'root', details: { candidates: [] } });
 	});
 
 	it('«да» и «нет» на «Могу ли я ещё Вам чем-то помочь?»', async () => {
 		await say('служба поддержки');
-		await say('да');
-		expect(last()).toMatchObject({ type: 'more' });
+		expect(await track('да')).toMatchObject({ type: 'more', details: { fromNodeCode: 'support' } });
 
 		await say('служба поддержки');
-		await say('нет, спасибо');
-		expect(last()).toMatchObject({ type: 'goodbye' });
+		expect(await track('нет, спасибо')).toMatchObject({ type: 'goodbye' });
 	});
 
-	it('одно событие на сообщение', async () => {
-		await say('Здравствуйте, как купить билет?');
-
-		expect(events.map(event => event.type)).toEqual(['start', 'answer']);
+	it('приветствие перед вопросом', async () => {
+		expect(await track('Здравствуйте, как купить билет?')).toMatchObject({ type: 'answer', nodeCode: 'buy', details: { greeting: true } });
 	});
 });

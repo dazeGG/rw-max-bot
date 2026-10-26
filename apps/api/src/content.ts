@@ -4,7 +4,10 @@ import { asc } from 'drizzle-orm';
 
 import { DEFAULT_SETTINGS } from '@rw/core';
 import type { ContentNode, ContentSnapshot, Settings } from '@rw/core';
-import { contentNodes, db, settings } from '@rw/db';
+import { contentNodes, contentVersions, db, settings } from '@rw/db';
+import { errorMessage } from '@rw/runtime';
+
+import { logger } from './logger';
 
 // Весь контент, включая выключенные разделы: дерево для бота собирает ContentTree, админке нужны все.
 // version — хеш содержимого: бот перекачивает контент, только если он изменился (ТЗ п. 4.3)
@@ -41,6 +44,28 @@ export const loadContent = async (): Promise<ContentSnapshot> => {
 	}
 
 	const version = createHash('sha256').update(JSON.stringify({ nodes, settings: merged })).digest('hex').slice(0, 16);
+	const snapshot = { version, nodes, settings: merged };
 
-	return { version, nodes, settings: merged };
+	await rememberVersion(snapshot);
+
+	return snapshot;
+};
+
+let rememberedVersion: string | null = null;
+
+// Снимок версии контента для статистики: события ссылаются на нее, и видно меню, которое видел пользователь,
+// даже если раздел потом изменили или удалили. Ошибка записи не мешает отдавать контент
+const rememberVersion = async (snapshot: ContentSnapshot): Promise<void> => {
+	if (snapshot.version === rememberedVersion) {
+		return;
+	}
+
+	try {
+		await db.insert(contentVersions)
+			.values({ version: snapshot.version, nodes: snapshot.nodes, settings: snapshot.settings })
+			.onConflictDoNothing();
+		rememberedVersion = snapshot.version;
+	} catch (error) {
+		logger.error('Content version snapshot failed', { version: snapshot.version, error: errorMessage(error) });
+	}
 };

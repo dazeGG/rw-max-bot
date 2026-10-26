@@ -9,6 +9,23 @@ export type ContentSnapshot = {
 	settings: Settings;
 };
 
+// Запись журнала для статистики (POST /internal/events). type — тип из DialogEventType или тип обновления MAX
+// (bot_stopped, message_edited…). Неизменные поля — колонки, все подробности — в data и raw (jsonb): их состав
+// можно расширять без миграций, data.v — версия формата
+export type DialogEventRecord = {
+	userId: number;
+	type: string;
+	nodeId: number | null;
+	nodeCode: string | null;
+	contentVersion: string | null;
+	text: string | null;
+	data: Record<string, unknown>;
+	// Исходное обновление MAX целиком
+	raw: unknown;
+	// Когда бот получил обновление (ISO 8601)
+	createdAt: string;
+};
+
 export type BotLeaseRequest = {
 	instanceId: string;
 };

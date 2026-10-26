@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 
-import type { DialogEvent, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
+import type { DialogEventRecord, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
 import { db, dialogEvents, sessions, subscribers, unrecognizedMessages } from '@rw/db';
 
 // Данные диалогов, которые бот сохраняет через /internal/*
@@ -46,6 +46,6 @@ export const saveUnrecognized = async (event: UnrecognizedEvent): Promise<void> 
 	await db.insert(unrecognizedMessages).values(event);
 };
 
-export const saveDialogEvent = async (event: DialogEvent): Promise<void> => {
-	await db.insert(dialogEvents).values(event);
+export const saveDialogEvent = async (event: DialogEventRecord): Promise<void> => {
+	await db.insert(dialogEvents).values({ ...event, createdAt: new Date(event.createdAt) });
 };

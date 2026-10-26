@@ -34,16 +34,17 @@ const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), {
 			logger.error('Failed to save unrecognized message', { error: errorMessage(error) });
 		}
 	},
-	// Статистика не должна задерживать ответ: запись уходит в фоне
-	onEvent: event => {
-		void api.saveDialogEvent(event).catch(error =>
-			logger.error('Failed to save dialog event', { type: event.type, error: errorMessage(error) }));
-	},
 });
 
 const { bot, drain } = createMaxBot(config.botToken, engine, {
 	onUser: user => api.touchSubscriber(user),
 	onBlocked: userId => api.markSubscriberBlocked(userId),
+	// Статистика не должна задерживать ответ: запись уходит в фоне
+	onEvent: event => {
+		void api.saveDialogEvent({ ...event, contentVersion: content.currentVersion() }).catch(error =>
+			logger.error('Failed to save dialog event', { type: event.type, error: errorMessage(error) }));
+	},
+	revision: config.revision,
 });
 
 // Подписку на вебхук при остановке не снимаем: MAX придержит события на время перезапуска

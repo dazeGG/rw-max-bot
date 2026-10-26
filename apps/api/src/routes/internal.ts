@@ -4,8 +4,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 
 import type { FastifyPluginAsync } from 'fastify';
 
-import { DIALOG_EVENT_TYPES } from '@rw/core';
-import type { BotLeaseRequest, DialogEvent, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
+import type { BotLeaseRequest, DialogEventRecord, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
 
 import type { BotLease } from '../bot-lease';
 import { config } from '../config';
@@ -51,14 +50,20 @@ const unrecognizedBody = {
 	},
 } as const;
 
+// Тип события не ограничен списком, data и raw — любые объекты: журнал расширяется без правок API
 const dialogEventBody = {
 	type: 'object',
-	required: ['userId', 'type', 'nodeCode', 'text'],
+	required: ['userId', 'type', 'createdAt'],
 	properties: {
 		userId: { type: 'integer' },
-		type: { type: 'string', enum: DIALOG_EVENT_TYPES },
+		type: { type: 'string', minLength: 1, maxLength: 50 },
+		nodeId: { type: ['integer', 'null'] },
 		nodeCode: { type: ['string', 'null'], maxLength: 100 },
-		text: { type: ['string', 'null'], maxLength: 4000 },
+		contentVersion: { type: ['string', 'null'], maxLength: 64 },
+		text: { type: ['string', 'null'] },
+		data: { type: 'object' },
+		raw: {},
+		createdAt: { type: 'string', format: 'date-time' },
 	},
 } as const;
 
@@ -113,7 +118,7 @@ export const internalRoutes = (lease: BotLease): FastifyPluginAsync => async app
 		return reply.code(204).send();
 	});
 
-	app.post<{ Body: DialogEvent; }>('/events', { schema: { body: dialogEventBody } }, async (request, reply) => {
+	app.post<{ Body: DialogEventRecord; }>('/events', { schema: { body: dialogEventBody } }, async (request, reply) => {
 		await saveDialogEvent(request.body);
 		return reply.code(204).send();
 	});

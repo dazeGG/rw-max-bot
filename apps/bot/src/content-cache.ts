@@ -62,6 +62,11 @@ export class ContentCache {
 		}
 	}
 
+	// Версия контента, по которому бот сейчас отвечает (для статистики)
+	currentVersion (): string | null {
+		return this.version ?? null;
+	}
+
 	get (): ContentTree {
 		if (!this.tree) {
 			throw new Error('Content is not loaded');

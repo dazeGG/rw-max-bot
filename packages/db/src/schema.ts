@@ -1,8 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, index, integer, pgTable, serial, text, timestamp, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, index, integer, jsonb, pgTable, serial, text, timestamp, varchar } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
-
-import { DIALOG_EVENT_TYPES } from '@rw/core';
 
 // Разделы и меню бота (ТЗ п. 4.1 «Разделы и меню бота»)
 export const contentNodes = pgTable('content_nodes', {
@@ -91,16 +89,29 @@ export const unrecognizedMessages = pgTable('unrecognized_messages', {
 	index('unrecognized_messages_created_idx').on(table.createdAt),
 ]);
 
-// Журнал диалогов для статистики: одна запись на сообщение пользователя (типы — DIALOG_EVENT_TYPES в @rw/core).
-// Раздел хранится кодом: id меняются при перезаливке контента
+// Журнал для статистики: сообщения пользователей и прочие обновления MAX (DialogEventRecord в @rw/core).
+// type без ограничений — новые типы событий не требуют миграций. Раздел записан и id, и кодом, и версией контента:
+// пока контент перезаливается из seed-data.ts, id меняются, а по content_versions видно меню, которое видел пользователь
 export const dialogEvents = pgTable('dialog_events', {
 	id: serial('id').primaryKey(),
 	userId: bigint('user_id', { mode: 'number' }).notNull(),
-	type: varchar('type', { length: 20, enum: DIALOG_EVENT_TYPES }).notNull(),
+	type: varchar('type', { length: 50 }).notNull(),
+	nodeId: integer('node_id'),
 	nodeCode: varchar('node_code', { length: 100 }),
+	contentVersion: varchar('content_version', { length: 64 }),
 	text: text('text'),
+	data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
+	raw: jsonb('raw'),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, table => [
 	index('dialog_events_created_idx').on(table.createdAt),
-	check('dialog_events_type_check', sql.raw(`type in (${DIALOG_EVENT_TYPES.map(type => `'${type}'`).join(', ')})`)),
+	index('dialog_events_user_idx').on(table.userId, table.createdAt),
 ]);
+
+// Снимок каждой версии контента, которую API отдавал боту: на нее ссылается dialog_events.content_version
+export const contentVersions = pgTable('content_versions', {
+	version: varchar('version', { length: 64 }).primaryKey(),
+	nodes: jsonb('nodes').notNull(),
+	settings: jsonb('settings').notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

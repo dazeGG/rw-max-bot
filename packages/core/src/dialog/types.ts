@@ -34,24 +34,42 @@ export type UnrecognizedEvent = {
 	nodeId: number | null;
 };
 
+export interface DialogEvents {
+	onUnrecognized? (event: UnrecognizedEvent): Promise<void> | void;
+}
+
 // Как бот обработал сообщение — для статистики:
 // start — стартовое сообщение; answer — раздел найден по тексту; option — выбран номер варианта;
 // clarify — «Уточните, пожалуйста…»; unrecognized — не понял; back, menu — навигация;
 // more, goodbye — «да» или «нет» на «Могу ли я ещё Вам чем-то помочь?»
-export const DIALOG_EVENT_TYPES = ['start', 'answer', 'option', 'clarify', 'unrecognized', 'back', 'menu', 'more', 'goodbye'] as const;
+export type DialogEventType = 'start' | 'answer' | 'option' | 'clarify' | 'unrecognized' | 'back' | 'menu' | 'more' | 'goodbye';
 
-export type DialogEventType = typeof DIALOG_EVENT_TYPES[number];
-
-export type DialogEvent = {
-	userId: number;
-	type: DialogEventType;
-	// Код раздела, который бот показал (для clarify и unrecognized — где был пользователь). Код, а не id:
-	// id разделов меняются при перезаливке контента
-	nodeCode: string | null;
-	text: string | null;
+// Подробности разбора сообщения. Состав можно расширять: в БД они лежат в jsonb
+export type DialogEventDetails = {
+	// Раздел, где был пользователь, и пункты, на которые ссылаются номера в его сообщении
+	fromNodeId?: number;
+	fromNodeCode?: string;
+	shown?: string[];
+	normalized?: string;
+	greeting?: boolean;
+	// Номер варианта: option — выбран, unmatchedOption — в показанном списке такого номера не было
+	option?: number;
+	unmatchedOption?: number;
+	// Лучшие кандидаты поиска по тексту с баллами и варианты, предложенные в «Уточните, пожалуйста…»
+	candidates?: Array<{ code: string; score: number; }>;
+	suggested?: string[];
 };
 
-export interface DialogEvents {
-	onUnrecognized? (event: UnrecognizedEvent): Promise<void> | void;
-	onEvent? (event: DialogEvent): Promise<void> | void;
-}
+export type DialogEvent = {
+	type: DialogEventType;
+	// Раздел, который бот показал (для clarify и unrecognized — где был пользователь)
+	nodeId: number | null;
+	nodeCode: string | null;
+	text: string | null;
+	details: DialogEventDetails;
+};
+
+export type DialogResult = {
+	replies: Reply[];
+	event: DialogEvent;
+};

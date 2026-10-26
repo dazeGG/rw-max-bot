@@ -1,4 +1,4 @@
-import type { BotLeaseRequest, ContentSnapshot, DialogEvent, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
+import type { BotLeaseRequest, ContentSnapshot, DialogEventRecord, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
 
 // Зависший API не должен задерживать ответ пользователю дольше этого
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -62,7 +62,7 @@ export class ApiClient {
 		await this.request('POST', '/unrecognized', { body: event });
 	}
 
-	async saveDialogEvent (event: DialogEvent): Promise<void> {
+	async saveDialogEvent (event: DialogEventRecord): Promise<void> {
 		await this.request('POST', '/events', { body: event });
 	}
 
