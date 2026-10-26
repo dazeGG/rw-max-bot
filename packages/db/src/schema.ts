@@ -2,6 +2,8 @@ import { sql } from 'drizzle-orm';
 import { bigint, boolean, check, index, integer, pgTable, serial, text, timestamp, varchar } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
+import { DIALOG_EVENT_TYPES } from '@rw/core';
+
 // Разделы и меню бота (ТЗ п. 4.1 «Разделы и меню бота»)
 export const contentNodes = pgTable('content_nodes', {
 	id: serial('id').primaryKey(),
@@ -87,4 +89,18 @@ export const unrecognizedMessages = pgTable('unrecognized_messages', {
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, table => [
 	index('unrecognized_messages_created_idx').on(table.createdAt),
+]);
+
+// Журнал диалогов для статистики: одна запись на сообщение пользователя (типы — DIALOG_EVENT_TYPES в @rw/core).
+// Раздел хранится кодом: id меняются при перезаливке контента
+export const dialogEvents = pgTable('dialog_events', {
+	id: serial('id').primaryKey(),
+	userId: bigint('user_id', { mode: 'number' }).notNull(),
+	type: varchar('type', { length: 20, enum: DIALOG_EVENT_TYPES }).notNull(),
+	nodeCode: varchar('node_code', { length: 100 }),
+	text: text('text'),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+	index('dialog_events_created_idx').on(table.createdAt),
+	check('dialog_events_type_check', sql.raw(`type in (${DIALOG_EVENT_TYPES.map(type => `'${type}'`).join(', ')})`)),
 ]);

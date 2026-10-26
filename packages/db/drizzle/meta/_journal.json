@@ -15,6 +15,13 @@
       "when": 1792667658176,
       "tag": "0001_admins",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793005870836,
+      "tag": "0002_dialog_events",
+      "breakpoints": true
     }
   ]
 }

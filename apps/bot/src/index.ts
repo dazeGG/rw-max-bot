@@ -34,6 +34,11 @@ const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), {
 			logger.error('Failed to save unrecognized message', { error: errorMessage(error) });
 		}
 	},
+	// Статистика не должна задерживать ответ: запись уходит в фоне
+	onEvent: event => {
+		void api.saveDialogEvent(event).catch(error =>
+			logger.error('Failed to save dialog event', { type: event.type, error: errorMessage(error) }));
+	},
 });
 
 const { bot, drain } = createMaxBot(config.botToken, engine, {

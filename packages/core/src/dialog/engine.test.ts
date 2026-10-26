@@ -5,13 +5,14 @@ import { ContentTree } from '../content/tree';
 
 import { DialogEngine } from './engine';
 import { MemorySessionStore } from './memory-sessions';
-import type { UnrecognizedEvent } from './types';
+import type { DialogEvent, UnrecognizedEvent } from './types';
 
 const tree = new ContentTree(flattenSeed(), SEED_SETTINGS);
 const user = { id: 42 };
 
 let sessions: MemorySessionStore;
 let unrecognized: UnrecognizedEvent[];
+let events: DialogEvent[];
 let engine: DialogEngine;
 
 const currentCode = async () => tree.get((await sessions.get(user.id)).nodeId)?.code;
@@ -22,7 +23,11 @@ const options = (text: string) => text.split('\n').filter(line => /^\d+\. /.test
 beforeEach(async () => {
 	sessions = new MemorySessionStore();
 	unrecognized = [];
-	engine = new DialogEngine(() => tree, sessions, { onUnrecognized: event => void unrecognized.push(event) });
+	events = [];
+	engine = new DialogEngine(() => tree, sessions, {
+		onUnrecognized: event => void unrecognized.push(event),
+		onEvent: event => void events.push(event),
+	});
 	await engine.handle(user, { type: 'start' });
 });
 
@@ -295,5 +300,56 @@ describe('вложения', () => {
 
 		expect(tariffs.image).toBe('generated/tariffs.jpg');
 		expect(support.file).toEqual({ path: 'files/support.pdf', name: 'Контакты.pdf' });
+	});
+});
+
+describe('журнал событий для статистики', () => {
+	const last = () => events.at(-1);
+
+	it('старт, ответ по тексту, номер варианта, «назад» и «меню»', async () => {
+		expect(events).toEqual([{ userId: user.id, type: 'start', nodeCode: 'root', text: null }]);
+
+		await say('купить билет');
+		expect(last()).toEqual({ userId: user.id, type: 'answer', nodeCode: 'buy', text: 'купить билет' });
+
+		await say('2');
+		expect(last()).toEqual({ userId: user.id, type: 'option', nodeCode: 'buy-offline', text: '2' });
+
+		await say('назад');
+		expect(last()).toMatchObject({ type: 'back', nodeCode: 'buy' });
+
+		await say('меню');
+		expect(last()).toMatchObject({ type: 'menu', nodeCode: 'root' });
+	});
+
+	it('goto записывается разделом, куда он ведет', async () => {
+		await say('хочу сдать билет');
+		await say('трансфер');
+
+		expect(last()).toMatchObject({ type: 'answer', nodeCode: 'transfer-refund' });
+	});
+
+	it('уточнение и непонятый ввод — с разделом, где был пользователь', async () => {
+		await say('благовещенск');
+		expect(last()).toMatchObject({ type: 'clarify', nodeCode: 'root', text: 'благовещенск' });
+
+		await say('асдфыва');
+		expect(last()).toMatchObject({ type: 'unrecognized', nodeCode: 'root', text: 'асдфыва' });
+	});
+
+	it('«да» и «нет» на «Могу ли я ещё Вам чем-то помочь?»', async () => {
+		await say('служба поддержки');
+		await say('да');
+		expect(last()).toMatchObject({ type: 'more' });
+
+		await say('служба поддержки');
+		await say('нет, спасибо');
+		expect(last()).toMatchObject({ type: 'goodbye' });
+	});
+
+	it('одно событие на сообщение', async () => {
+		await say('Здравствуйте, как купить билет?');
+
+		expect(events.map(event => event.type)).toEqual(['start', 'answer']);
 	});
 });

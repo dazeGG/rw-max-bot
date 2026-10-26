@@ -4,12 +4,13 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 
 import type { FastifyPluginAsync } from 'fastify';
 
-import type { BotLeaseRequest, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
+import { DIALOG_EVENT_TYPES } from '@rw/core';
+import type { BotLeaseRequest, DialogEvent, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
 
 import type { BotLease } from '../bot-lease';
 import { config } from '../config';
 import { loadContent } from '../content';
-import { getSession, markSubscriberBlocked, saveUnrecognized, setSession, touchSubscriber } from '../store';
+import { getSession, markSubscriberBlocked, saveDialogEvent, saveUnrecognized, setSession, touchSubscriber } from '../store';
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
 const expectedToken = digest(`Bearer ${config.internalToken}`);
@@ -47,6 +48,17 @@ const unrecognizedBody = {
 		userId: { type: 'integer' },
 		text: { type: 'string', maxLength: 4000 },
 		nodeId: { type: ['integer', 'null'] },
+	},
+} as const;
+
+const dialogEventBody = {
+	type: 'object',
+	required: ['userId', 'type', 'nodeCode', 'text'],
+	properties: {
+		userId: { type: 'integer' },
+		type: { type: 'string', enum: DIALOG_EVENT_TYPES },
+		nodeCode: { type: ['string', 'null'], maxLength: 100 },
+		text: { type: ['string', 'null'], maxLength: 4000 },
 	},
 } as const;
 
@@ -98,6 +110,11 @@ export const internalRoutes = (lease: BotLease): FastifyPluginAsync => async app
 
 	app.post<{ Body: UnrecognizedEvent; }>('/unrecognized', { schema: { body: unrecognizedBody } }, async (request, reply) => {
 		await saveUnrecognized(request.body);
+		return reply.code(204).send();
+	});
+
+	app.post<{ Body: DialogEvent; }>('/events', { schema: { body: dialogEventBody } }, async (request, reply) => {
+		await saveDialogEvent(request.body);
 		return reply.code(204).send();
 	});
 

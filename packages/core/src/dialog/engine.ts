@@ -4,7 +4,7 @@ import type { ContentNode } from '../content/types';
 import { rank } from './matcher';
 import type { Candidate } from './matcher';
 import { escapeHtml, stripGreeting } from './text';
-import type { DialogEvents, DialogInput, DialogUser, Reply, Session, SessionStore } from './types';
+import type { DialogEvents, DialogEventType, DialogInput, DialogUser, Reply, Session, SessionStore } from './types';
 
 // Пороги подобраны на тестовых диалогах (src/dialog/engine.test.ts)
 const THRESHOLD = 0.6;
@@ -46,6 +46,7 @@ export class DialogEngine {
 		const tree = this.getTree();
 
 		if (input.type === 'start') {
+			await this.track(user, 'start', tree.root);
 			return this.open(user, tree, tree.root);
 		}
 
@@ -61,14 +62,18 @@ export class DialogEngine {
 
 		// Чистое приветствие: стартовое сообщение и так начинается с приветствия
 		if (rest === '' || rest === 'start') {
+			await this.track(user, 'start', tree.root, text);
 			return this.open(user, tree, tree.root);
 		}
 
 		if (BACK_WORDS.has(rest)) {
-			return this.open(user, tree, tree.parent(current) ?? tree.root);
+			const target = tree.parent(current) ?? tree.root;
+			await this.track(user, 'back', target, text);
+			return this.open(user, tree, target);
 		}
 
 		if (HOME_WORDS.has(rest)) {
+			await this.track(user, 'menu', tree.root, text);
 			return this.open(user, tree, tree.root);
 		}
 
@@ -76,11 +81,13 @@ export class DialogEngine {
 		// Новый вопрос вместо «да» обрабатывается как обычно
 		if (this.isFinal(tree, current) &&!session.choices?.length) {
 			if (YES_WORDS.has(rest)) {
+				await this.track(user, 'more', tree.root, text);
 				await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
 				return [{ text: this.withOptions(tree, tree.settings['text.askMore'], tree.visibleChildren(tree.root)) }];
 			}
 
 			if (NO_WORDS.has(rest)) {
+				await this.track(user, 'goodbye', tree.root, text);
 				await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
 				return [{ text: tree.settings['text.goodbye'] }];
 			}
@@ -91,6 +98,7 @@ export class DialogEngine {
 			const option = this.shownOptions(tree, current, session)[Number(rest) - 1];
 
 			if (option) {
+				await this.track(user, 'option', tree.resolve(option), text);
 				return this.open(user, tree, option);
 			}
 		}
@@ -99,17 +107,24 @@ export class DialogEngine {
 
 		switch (choice.kind) {
 		case 'node':
+			await this.track(user, 'answer', tree.resolve(choice.node), text);
 			return [...greetingReplies, ...await this.open(user, tree, choice.node)];
 
 		case 'ambiguous':
+			await this.track(user, 'clarify', current, text);
 			await this.sessions.set(user.id, { nodeId: current.id, choices: choice.candidates.map(node => node.id) });
 			return [...greetingReplies, { text: this.withOptions(tree, tree.settings['text.didYouMean'], choice.candidates) }];
 
 		case 'none':
+			await this.track(user, 'unrecognized', current, text);
 			await this.events.onUnrecognized?.({ userId: user.id, text, nodeId: current.id });
 			await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
 			return [{ text: this.withOptions(tree, tree.settings['text.fallback'], tree.visibleChildren(tree.root)) }];
 		}
+	}
+
+	private async track (user: DialogUser, type: DialogEventType, node: ContentNode, text: string | null = null): Promise<void> {
+		await this.events.onEvent?.({ userId: user.id, type, nodeCode: node.code, text });
 	}
 
 	private choose (tree: ContentTree, current: ContentNode, session: Session, text: string): Choice {
