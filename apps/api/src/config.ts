@@ -22,6 +22,8 @@ export const config = {
 	port,
 	// Общий секрет бота и API для запросов /internal/*
 	internalToken: required('INTERNAL_API_TOKEN'),
+	// Внутренний HTTP-сервер бота для уведомлений об изменении контента
+	botControlUrl: process.env.BOT_CONTROL_URL ?? 'http://127.0.0.1:3002',
 	// На сервере админка работает по HTTPS: cookie сессии не уходит по открытому HTTP
 	secureCookies: process.env.ADMIN_COOKIE_SECURE === 'true',
 } as const;

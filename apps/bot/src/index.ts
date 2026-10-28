@@ -8,6 +8,7 @@ import { apiConfig } from './api-config';
 import { ApiSessionStore } from './api-sessions';
 import { config } from './config';
 import { ContentCache } from './content-cache';
+import { createControlServer } from './control-server';
 import { acquireInstanceLease } from './instance-lease';
 import type { InstanceLease } from './instance-lease';
 import { logger } from './logger';
@@ -25,6 +26,11 @@ const content = new ContentCache(api);
 await content.init(config.contentRefreshSeconds);
 
 let lease: InstanceLease | null = null;
+const control = createControlServer(apiConfig.token, async () => {
+	await content.reload();
+	logger.info('Content refreshed by internal signal', { version: content.currentVersion() });
+	return content.currentVersion();
+});
 
 const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), {
 	onUnrecognized: async event => {
@@ -51,6 +57,8 @@ const { bot, drain } = createMaxBot(config.botToken, engine, {
 const shutdown = async (exitCode = 0) => {
 	logger.info('Shutting down');
 	content.stop();
+	control.close();
+	control.closeIdleConnections();
 
 	if (config.mode === 'polling') {
 		bot.stopPolling();
@@ -79,6 +87,13 @@ if (!lease) {
 	process.once('SIGTERM', () => void shutdown());
 
 	try {
+		await new Promise<void>((resolve, reject) => {
+			control.once('error', reject);
+			control.listen(config.controlPort, config.controlHost, () => {
+				control.removeListener('error', reject);
+				resolve();
+			});
+		});
 		if (config.webhook) {
 			logger.info('Starting bot in webhook mode', { domain: config.webhook.domain, port: config.webhook.port });
 			await bot.start({

@@ -44,6 +44,32 @@ deploy/deploy.sh      # выкладывает HEAD; незакоммиченн�
 
 ## Обслуживание
 
+### Немедленное обновление контента после SQL-правок
+
+После успешного коммита изменений в БД вызовите внутренний метод API. Кнопки в админке нет.
+На сервере из `/opt/rw-max-bot/src/deploy`:
+
+```bash
+docker compose --env-file /opt/rw-max-bot/.env exec -T api node --input-type=module <<'JS'
+const response = await fetch('http://127.0.0.1:3001/internal/content/refresh', {
+  method: 'POST',
+  headers: { authorization: `Bearer ${process.env.INTERNAL_API_TOKEN}` },
+});
+console.log(response.status, await response.text());
+if (!response.ok) process.exitCode = 1;
+JS
+```
+
+API отправляет `POST http://bot:3002/internal/content/refresh`. Бот загружает контент через API,
+затем возвращает `{ "ok": true, "version": "..." }`. Порт 3002 не опубликован наружу, оба метода
+защищены `INTERNAL_API_TOKEN`; Caddy блокирует внешний `/internal/*`. При ошибке возвращается 503:
+данные в БД не откатываются, бот сохраняет прежний кеш; можно повторить запрос или дождаться резервной проверки.
+
+Резервный опрос — раз в 5 минут (`CONTENT_REFRESH_SECONDS=300`). При обновлении существующей установки
+замените старое значение `CONTENT_REFRESH_SECONDS=30` в `/opt/rw-max-bot/.env` на `300` и пересоздайте
+контейнер бота через `docker compose --env-file /opt/rw-max-bot/.env up -d bot`. Обычный `restart`
+не применяет изменения переменных окружения. Для новой функциональности сначала нужна выкладка кода.
+
 ```bash
 ssh root@87.242.88.90
 cd /opt/rw-max-bot/src/deploy

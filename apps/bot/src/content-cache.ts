@@ -14,7 +14,7 @@ export class ContentCache {
 	private tree: ContentTree | null = null;
 	private version: string | undefined;
 	private timer: NodeJS.Timeout | null = null;
-	private refreshing = false;
+	private refreshing: Promise<void> | null = null;
 
 	constructor (private readonly api: ApiClient) {}
 
@@ -32,7 +32,11 @@ export class ContentCache {
 
 		logger.info('Content loaded', { nodes: this.get().all().length, version: this.version });
 
-		this.timer = setInterval(() => void this.refresh(), refreshSeconds * 1000);
+		this.timer = setInterval(() => {
+			void this.refresh().catch(error => {
+				logger.error('Content refresh failed, serving cached content', { error: errorMessage(error) });
+			});
+		}, refreshSeconds * 1000);
 		this.timer.unref();
 	}
 
@@ -45,21 +49,19 @@ export class ContentCache {
 		}
 	}
 
-	async refresh (): Promise<void> {
-		// Пока API отвечает медленно, обновления не накапливаются
-		if (this.refreshing) {
-			return;
-		}
+	refresh (): Promise<void> {
+		// Параллельные фоновые проверки используют один запрос.
+		this.refreshing ??= this.load().finally(() => {
+			this.refreshing = null;
+		});
+		return this.refreshing;
+	}
 
-		this.refreshing = true;
-
-		try {
-			await this.load();
-		} catch (error) {
-			logger.error('Content refresh failed, serving cached content', { error: errorMessage(error) });
-		} finally {
-			this.refreshing = false;
-		}
+	async reload (): Promise<void> {
+		// Сигнал мог прийти после записи в БД, но во время старого запроса.
+		// Дожидаемся его и обязательно запрашиваем контент заново.
+		await this.refreshing?.catch(() => undefined);
+		await this.refresh();
 	}
 
 	// Версия контента, по которому бот сейчас отвечает (для статистики)

@@ -29,13 +29,20 @@ if (mode !== 'polling' && mode !== 'webhook') {
 	throw new Error('BOT_MODE must be "polling" or "webhook"');
 }
 
-const refreshSeconds = Number(process.env.CONTENT_REFRESH_SECONDS || 30);
+const refreshSeconds = Number(process.env.CONTENT_REFRESH_SECONDS || 300);
+const controlPort = Number(process.env.BOT_CONTROL_PORT ?? 3002);
+
+if (!Number.isInteger(controlPort) || controlPort < 1 || controlPort > 65535) {
+	throw new Error('BOT_CONTROL_PORT must be a port number');
+}
 
 if (!Number.isInteger(refreshSeconds) || refreshSeconds < 1) {
 	throw new Error('CONTENT_REFRESH_SECONDS must be a positive integer');
 }
 
 export const config = {
+	controlHost: process.env.BOT_CONTROL_HOST ?? '127.0.0.1',
+	controlPort,
 	botToken: required('BOT_TOKEN'),
 	mode,
 	webhook: mode === 'webhook'

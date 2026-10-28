@@ -9,6 +9,7 @@ import type { BotLeaseRequest, DialogEventRecord, DialogUser, Session, Unrecogni
 import type { BotLease } from '../bot-lease';
 import { config } from '../config';
 import { loadContent } from '../content';
+import { notifyBotContentChanged } from '../content-notifier';
 import { getSession, markSubscriberBlocked, saveDialogEvent, saveUnrecognized, setSession, touchSubscriber } from '../store';
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
@@ -93,6 +94,17 @@ export const internalRoutes = (lease: BotLease): FastifyPluginAsync => async app
 		}
 
 		return snapshot;
+	});
+
+	// Для обслуживания после прямой правки БД; notifier также можно вызвать после сохранения из админки.
+	app.post('/content/refresh', async (request, reply) => {
+		try {
+			return await notifyBotContentChanged(config.botControlUrl, config.internalToken);
+		} catch {
+			return reply.code(503).send({
+				error: 'Не удалось подтвердить обновление контента бота. Повторите запрос или дождитесь резервного опроса.',
+			});
+		}
 	});
 
 	app.get<{ Params: { userId: number; }; }>('/sessions/:userId', { schema: { params: userIdParams } }, async request =>
