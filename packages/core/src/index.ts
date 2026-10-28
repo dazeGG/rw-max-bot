@@ -3,7 +3,7 @@ export * from './content/seed-data';
 export * from './content/tree';
 export * from './content/types';
 export * from './dialog/engine';
-export * from './dialog/matcher';
+export * from './dialog/search';
 export * from './dialog/memory-sessions';
 export * from './dialog/text';
 export * from './dialog/types';

@@ -8,9 +8,11 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "chat": "tsx src/cli/chat.ts",
+    "eval:e5": "tsx src/cli/evaluate-e5.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.2",
     "@maxhub/max-bot-api": "^1.0.2",
     "@rw/core": "workspace:*",
     "@rw/runtime": "workspace:*",

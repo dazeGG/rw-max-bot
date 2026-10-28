@@ -12,6 +12,8 @@ import { createControlServer } from './control-server';
 import { acquireInstanceLease } from './instance-lease';
 import type { InstanceLease } from './instance-lease';
 import { logger } from './logger';
+import { semanticPolicy } from './semantic-config';
+import { createE5Search, E5_MODEL, E5_REVISION } from './semantic-search';
 import { createMaxBot } from './transport/max';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -22,8 +24,11 @@ if (!apiConfig.token) {
 
 const api = new ApiClient(apiConfig.url, apiConfig.token);
 
-const content = new ContentCache(api);
+logger.info('Loading E5 semantic search', { model: E5_MODEL, revision: E5_REVISION });
+const search = await createE5Search();
+const content = new ContentCache(api, tree => search.prepare(tree));
 await content.init(config.contentRefreshSeconds);
+logger.info('E5 semantic search ready', { nodes: content.get().all().length, ...semanticPolicy });
 
 let lease: InstanceLease | null = null;
 const control = createControlServer(apiConfig.token, async () => {
@@ -32,7 +37,7 @@ const control = createControlServer(apiConfig.token, async () => {
 	return content.currentVersion();
 });
 
-const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), {
+const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), search, {
 	onUnrecognized: async event => {
 		try {
 			await api.saveUnrecognized(event);
@@ -40,14 +45,18 @@ const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), {
 			logger.error('Failed to save unrecognized message', { error: errorMessage(error) });
 		}
 	},
-});
+}, semanticPolicy);
 
 const { bot, drain } = createMaxBot(config.botToken, engine, {
+	getContentVersion: () => content.currentVersion(),
 	onUser: user => api.touchSubscriber(user),
 	onBlocked: userId => api.markSubscriberBlocked(userId),
 	// Статистика не должна задерживать ответ: запись уходит в фоне
 	onEvent: event => {
-		void api.saveDialogEvent({ ...event, contentVersion: content.currentVersion() }).catch(error =>
+		void api.saveDialogEvent({
+			...event,
+			data: { ...event.data, search: { model: E5_MODEL, revision: E5_REVISION, ...semanticPolicy } },
+		}).catch(error =>
 			logger.error('Failed to save dialog event', { type: event.type, error: errorMessage(error) }));
 	},
 	revision: config.revision,

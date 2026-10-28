@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { flattenSeed, SEED_SETTINGS } from '@rw/core';
+import type { ContentTree } from '@rw/core';
 
 import { ApiClient } from './api-client';
 import { ContentCache } from './content-cache';
@@ -9,11 +10,11 @@ describe('content cache refresh', () => {
 	afterEach(() => {
 		vi.restoreAllMocks(); vi.useRealTimers();
 	});
-	const setup = async () => {
+	const setup = async (prepare?: (tree: ContentTree) => Promise<void>) => {
 		const api = new ApiClient('http://unused', 'secret');
 		const snapshot = { nodes: flattenSeed(), settings: SEED_SETTINGS, version: 'v1' };
 		const getContent = vi.spyOn(api, 'getContent').mockResolvedValue(snapshot);
-		const cache = new ContentCache(api);
+		const cache = new ContentCache(api, prepare);
 		await cache.init(300);
 		return { cache, getContent, snapshot };
 	};
@@ -49,6 +50,74 @@ describe('content cache refresh', () => {
 		getContent.mockRejectedValue(new Error('offline'));
 		await expect(cache.reload()).rejects.toThrow('offline');
 		expect(cache.get()).toBe(tree);
+		cache.stop();
+	});
+	it('waits for model preparation before publishing initial content', async () => {
+		let ready!: () => void;
+		let started!: () => void;
+		const pending = new Promise<void>(resolve => {
+			ready = resolve;
+		});
+		const preparing = new Promise<void>(resolve => {
+			started = resolve;
+		});
+		const prepare = vi.fn(async () => {
+			started();
+			await pending;
+		});
+		const api = new ApiClient('http://unused', 'secret');
+		vi.spyOn(api, 'getContent').mockResolvedValue({ nodes: flattenSeed(), settings: SEED_SETTINGS, version: 'v1' });
+		const cache = new ContentCache(api, prepare);
+		const initializing = cache.init(300);
+		await preparing;
+		expect(cache.currentVersion()).toBeNull();
+		expect(() => cache.get()).toThrow('Content is not loaded');
+		ready();
+		await initializing;
+		expect(cache.currentVersion()).toBe('v1');
+		expect(prepare).toHaveBeenCalledWith(cache.get());
+		cache.stop();
+	});
+	it('keeps serving old content while a replacement model index is pending', async () => {
+		let ready!: () => void;
+		let started!: () => void;
+		const pending = new Promise<void>(resolve => {
+			ready = resolve;
+		});
+		const preparing = new Promise<void>(resolve => {
+			started = resolve;
+		});
+		const prepare = vi.fn<(tree: ContentTree) => Promise<void>>(async () => undefined);
+		const { cache, getContent, snapshot } = await setup(prepare);
+		const oldTree = cache.get();
+		prepare.mockImplementationOnce(async () => {
+			started();
+			await pending;
+		});
+		getContent.mockResolvedValue({ ...snapshot, version: 'v2' });
+		const refreshing = cache.reload();
+		await preparing;
+		expect(cache.get()).toBe(oldTree);
+		expect(cache.currentVersion()).toBe('v1');
+		ready();
+		await refreshing;
+		expect(cache.get()).not.toBe(oldTree);
+		expect(cache.currentVersion()).toBe('v2');
+		cache.stop();
+	});
+	it('preserves content and version on preparation failure and retries the same update', async () => {
+		const prepare = vi.fn<(tree: ContentTree) => Promise<void>>(async () => undefined);
+		const { cache, getContent, snapshot } = await setup(prepare);
+		const oldTree = cache.get();
+		getContent.mockResolvedValue({ ...snapshot, version: 'v2' });
+		prepare.mockRejectedValueOnce(new Error('index unavailable'));
+		await expect(cache.reload()).rejects.toThrow('index unavailable');
+		expect(cache.get()).toBe(oldTree);
+		expect(cache.currentVersion()).toBe('v1');
+		await cache.reload();
+		expect(getContent).toHaveBeenLastCalledWith('v1');
+		expect(cache.currentVersion()).toBe('v2');
+		expect(prepare).toHaveBeenCalledTimes(3);
 		cache.stop();
 	});
 });

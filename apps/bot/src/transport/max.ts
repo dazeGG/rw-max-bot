@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Bot } from '@maxhub/max-bot-api';
 import type { Context } from '@maxhub/max-bot-api';
 
-import type { DialogEngine, DialogEventRecord, DialogInput, DialogUser, Reply } from '@rw/core';
+import type { DialogEngine, DialogEventRecord, DialogInput, DialogResult, DialogUser, Reply } from '@rw/core';
 import { errorMessage, repoPath } from '@rw/runtime';
 
 import { logger } from '../logger';
@@ -24,13 +24,13 @@ type Delivery = {
 	file?: 'sent' | 'failed';
 };
 
-// Запись для статистики без версии контента: ее добавляет тот, кто знает текущий контент
-export type TransportEvent = Omit<DialogEventRecord, 'contentVersion'>;
+export type TransportEvent = DialogEventRecord;
 
 export type MaxBotHooks = {
 	onUser?: (user: DialogUser) => Promise<void>;
 	onBlocked?: (userId: number) => Promise<void>;
 	onEvent?: (event: TransportEvent) => void;
+	getContentVersion?: () => string | null;
 	// Выложенный коммит: попадает в каждую запись статистики
 	revision?: string | null;
 };
@@ -161,9 +161,13 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 	};
 
 	// Запись не должна задерживать ответ и ронять обработку
-	const record = (event: Omit<TransportEvent, 'data'> & { data: Record<string, unknown>; }) => {
+	const record = (event: Omit<TransportEvent, 'data' | 'contentVersion'> & { contentVersion?: string | null; data: Record<string, unknown>; }) => {
 		try {
-			hooks.onEvent?.({ ...event, data: { v: EVENT_FORMAT, channel: 'max', revision: hooks.revision ?? null, ...event.data } });
+			hooks.onEvent?.({
+				...event,
+				contentVersion: event.contentVersion === undefined ? hooks.getContentVersion?.() ?? null : event.contentVersion,
+				data: { v: EVENT_FORMAT, channel: 'max', revision: hooks.revision ?? null, ...event.data },
+			});
 		} catch (error) {
 			logger.error('Event record failed', { type: event.type, error: errorMessage(error) });
 		}
@@ -177,7 +181,28 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 			logger.error('Subscriber update failed', { userId: dialogUser.id, error: errorMessage(error) }));
 
 		const startedAt = Date.now();
-		const { replies, event } = await engine.process(dialogUser, input);
+		// Captured synchronously with the tree used by engine.process, before async E5 work.
+		const contentVersion = hooks.getContentVersion?.() ?? null;
+		let result: DialogResult;
+		try {
+			result = await engine.process(dialogUser, input);
+		} catch (error) {
+			logger.error('Semantic search failed', { error: errorMessage(error) });
+			record({
+				userId: user.user_id,
+				type: 'search_failed',
+				contentVersion,
+				nodeId: null,
+				nodeCode: null,
+				text: input.type === 'text' ? input.text : null,
+				raw: update,
+				createdAt: new Date(receivedAt).toISOString(),
+				data: { error: errorMessage(error), updateType: update.update_type },
+			});
+			await bot.api.sendMessageToUser(user.user_id, 'Не удалось выполнить поиск. Попробуйте ещё раз или напишите «меню» и выберите пункт номером.');
+			return;
+		}
+		const { replies, event } = result;
 		const processedAt = Date.now();
 		const deliveries: Delivery[] = [];
 		let sendError: string | undefined;
@@ -193,6 +218,7 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 			record({
 				userId: user.user_id,
 				type: event.type,
+				contentVersion,
 				nodeId: event.nodeId,
 				nodeCode: event.nodeCode,
 				text: event.text,

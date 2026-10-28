@@ -1,20 +1,11 @@
 import type { ContentTree } from '../content/tree';
 import type { ContentNode } from '../content/types';
 
-import { rank } from './matcher';
-import type { Candidate } from './matcher';
+import { DEFAULT_SEARCH_POLICY } from './search';
+import type { Candidate, DialogSearch, SearchPolicy } from './search';
 import { escapeHtml, stripGreeting } from './text';
 import type { DialogEventDetails, DialogEvents, DialogEventType, DialogInput, DialogResult, DialogUser, Reply, Session, SessionStore } from './types';
 
-// Пороги подобраны на тестовых диалогах (src/dialog/engine.test.ts)
-const THRESHOLD = 0.6;
-// Среди 2–3 предложенных вариантов достаточно частичного совпадения: «поезд» → «Поезд №317/№318 …»
-const SUGGESTION_THRESHOLD = 0.4;
-// Прибавка за контекст: ответ на вопрос текущего раздела или соседний пункт после конечного ответа
-const CHILD_BONUS = 0.2;
-const SIBLING_BONUS = 0.1;
-// Если второй кандидат ближе этого зазора к первому, бот переспрашивает
-const AMBIGUITY_GAP = 0.1;
 const MAX_SUGGESTIONS = 3;
 // Сколько лучших кандидатов поиска попадает в статистику
 const MAX_TRACED_CANDIDATES = 5;
@@ -41,7 +32,9 @@ export class DialogEngine {
 	constructor (
 		private readonly getTree: () => ContentTree,
 		private readonly sessions: SessionStore,
+		private readonly search: DialogSearch,
 		private readonly events: DialogEvents = {},
+		private readonly policy: SearchPolicy = DEFAULT_SEARCH_POLICY,
 	) {}
 
 	async handle (user: DialogUser, input: DialogInput): Promise<Reply[]> {
@@ -119,7 +112,7 @@ export class DialogEngine {
 		}
 
 		const { choice, ranked }: { choice: Choice; ranked: Candidate[]; } = number === null
-			? this.choose(tree, current, session, rest)
+			? await this.choose(tree, current, session, rest)
 			: { choice: { kind: 'none' }, ranked: [] };
 		const candidates = ranked.slice(0, MAX_TRACED_CANDIDATES)
 			.map(candidate => ({ code: candidate.node.code, score: Math.round(candidate.score * 1000) / 1000 }));
@@ -147,48 +140,41 @@ export class DialogEngine {
 	}
 
 	// ranked — кандидаты того поиска, который принял решение (для статистики)
-	private choose (tree: ContentTree, current: ContentNode, session: Session, text: string): { choice: Choice; ranked: Candidate[]; } {
-		// Ответ на «Уточните, пожалуйста…»: сначала среди предложенных вариантов
-		const suggested = (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
-
-		if (suggested.length > 0) {
-			const ranked = rank(tree, suggested, text);
-			const answer = this.pick(tree, ranked, SUGGESTION_THRESHOLD);
-
-			if (answer.kind === 'node') {
-				return { choice: answer, ranked };
-			}
-		}
-
-		// Поиск по всему дереву с прибавкой за контекст: короткий ответ «нет» или «трансфер»
-		// относится к вопросу текущего раздела, а новый вопрос уводит в другую ветку.
-		// В главном меню контекста нет: все разделы первого уровня равны
+	private async choose (tree: ContentTree, current: ContentNode, session: Session, text: string): Promise<{ choice: Choice; ranked: Candidate[]; }> {
+		// Контекст передаётся модели как данные, без словарей и ручных прибавок к оценкам.
 		const inContext = current.id !== tree.root.id;
 		const offered = new Set(inContext ? tree.children(current).map(node => node.id) : []);
 		const parent = tree.parent(current);
 		const siblings = new Set(inContext && offered.size === 0 && parent && parent.id !== tree.root.id
 			? tree.children(parent).map(node => node.id)
 			: []);
-		const bonus = (node: ContentNode) => offered.has(node.id) ? CHILD_BONUS : siblings.has(node.id) ? SIBLING_BONUS : 0;
-		// Короткий ответ дополняется словами раздела: «расписание» в «Трансфере» → «Расписание трансфера»
-		const contextOf = (node: ContentNode) => {
-			if (offered.has(node.id)) {
-				return tree.stemsOf(current);
-			}
-
-			return siblings.has(node.id) && parent ? tree.stemsOf(parent) : undefined;
-		};
+		const suggested = new Set(session.choices ?? []);
 		// goto-пункты — это варианты ответа на конкретный вопрос («Билет на поезд» в «Возврат билета»):
 		// вне своего вопроса они не участвуют, их цель и так есть в поиске
 		const everywhere = tree.all().filter(node => node.id !== tree.root.id &&
-			(node.type !== 'goto' || offered.has(node.id) || siblings.has(node.id)));
+			(node.type !== 'goto' || offered.has(node.id) || siblings.has(node.id) || suggested.has(node.id)));
+		const context = !inContext ? undefined : this.isFinal(tree, current) ? parent : current;
+		const allowed = new Set(everywhere.map(node => node.id));
+		const ranked = (await this.search.rank(tree, everywhere, text, context?.id === tree.root.id ? undefined : context))
+			.filter(candidate => allowed.has(candidate.node.id) && Number.isFinite(candidate.score))
+			.sort((a, b) => b.score - a.score || tree.depth(a.node) - tree.depth(b.node));
+		// Короткий ответ на уточнение может выбирать из уже предложенного списка,
+		// но только если E5 оценила его почти так же высоко, как лучший глобальный ответ.
+		// Новая тема с заметно лучшей оценкой и полные вопросы не перехватываются.
+		if (suggested.size > 0 && text.split(/\s+/).length <= 4) {
+			const narrowed = ranked.filter(candidate => suggested.has(candidate.node.id));
+			const best = ranked[0];
+			const suggestion = narrowed[0];
 
-		const ranked = rank(tree, everywhere, text, bonus, contextOf);
+			if (best && suggestion && suggestion.score >= this.policy.threshold && best.score - suggestion.score <= this.policy.ambiguityGap) {
+				return { choice: this.pick(tree, narrowed), ranked: narrowed };
+			}
+		}
 
 		return { choice: this.pick(tree, ranked), ranked };
 	}
 
-	private pick (tree: ContentTree, ranked: Candidate[], threshold = THRESHOLD): Choice {
+	private pick (tree: ContentTree, ranked: Candidate[]): Choice {
 		// Разные пункты могут вести в один раздел (goto) — это не неоднозначность
 		const unique: Candidate[] = [];
 		const seen = new Set<number>();
@@ -204,16 +190,53 @@ export class DialogEngine {
 
 		const [best] = unique;
 
-		if (!best || best.score < threshold) {
+		if (!best || best.score < this.policy.threshold) {
 			return { kind: 'none' };
 		}
 
-		const close = unique.filter(c => best.score - c.score < AMBIGUITY_GAP);
+		const close = unique.filter(c => c.score >= this.policy.threshold && best.score - c.score < this.policy.ambiguityGap);
 
-		// Уточняющий вопрос поглощает свои варианты ответа: на «сдать билет» бот спрашивает
-		// «билет или талон?», а не выбирает сам между вопросом и одним из ответов
-		const covered = new Set(close.flatMap(c => tree.children(tree.resolve(c.node)).map(child => tree.resolve(child).id)));
-		const remaining = close.filter(c => !covered.has(tree.resolve(c.node).id));
+		// Между общим вопросом и любым вложенным ответом сохраняем более высокий результат E5.
+		// Только при равных оценках предпочтителен родительский уточняющий вопрос.
+		const byTarget = new Map(close.map(candidate => [tree.resolve(candidate.node).id, candidate]));
+		const descendants = (parent: ContentNode): number[] => {
+			const seen = new Set([parent.id]);
+			const pending = [parent];
+			const result: number[] = [];
+
+			while (pending.length > 0) {
+				for (const child of tree.children(pending.pop()!)) {
+					const target = tree.resolve(child);
+
+					if (seen.has(target.id)) {
+						continue;
+					}
+
+					seen.add(target.id);
+					result.push(target.id);
+					pending.push(target);
+				}
+			}
+
+			return result;
+		};
+		const covered = new Set<number>();
+
+		for (const candidate of close) {
+			const parent = tree.resolve(candidate.node);
+
+			for (const targetId of descendants(parent)) {
+				const childCandidate = byTarget.get(targetId);
+
+				if (!childCandidate) {
+					continue;
+				}
+
+				covered.add(candidate.score >= childCandidate.score ? targetId : parent.id);
+			}
+		}
+
+		const remaining = close.filter(candidate => !covered.has(tree.resolve(candidate.node).id));
 
 		if (remaining.length <= 1) {
 			return { kind: 'node', node: (remaining[0] ?? best).node };

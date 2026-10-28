@@ -1,31 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { stem } from './stemmer';
-import { phraseKey, stripGreeting, tokenize } from './text';
+import { escapeHtml, normalize, stripGreeting } from './text';
 
-describe('stem', () => {
-	it.each([
-		['билеты', 'билет'],
-		['билетов', 'билет'],
-		['дальнего', 'дальн'],
-		['дальний', 'дальн'],
-		['ребёнка', 'ребенк'],
-		['поезда', 'поезд'],
-	])('%s → %s', (word, expected) => {
-		expect(stem(word)).toBe(expected);
+describe('normalize для протокольных команд', () => {
+	it('нормализует регистр, ё, пунктуацию и пробелы, не удаляя слова', () => {
+		expect(normalize('  Подскажите, пожалуйста, как мне купить билет? ')).toBe('подскажите пожалуйста как мне купить билет');
+		expect(normalize('Ещё — билет №317!')).toBe('еще билет 317');
 	});
 
-	it('не трогает цифры и латиницу', () => {
-		expect(stem('317')).toBe('317');
-		expect(stem('faq')).toBe('faq');
-	});
-});
-
-describe('tokenize', () => {
-	it('убирает служебные слова, но оставляет «да» и «нет»', () => {
-		expect(tokenize('Подскажите, пожалуйста, как мне купить билет?')).toEqual(['купить', 'билет']);
-		expect(tokenize('нет')).toEqual(['нет']);
-		expect(tokenize('да')).toEqual(['да']);
+	it('убирает HTML-теги, сохраняя текст', () => {
+		expect(normalize('<b>Меню</b>')).toBe('меню');
 	});
 });
 
@@ -41,8 +25,8 @@ describe('stripGreeting', () => {
 	});
 });
 
-describe('phraseKey', () => {
-	it('одинаков для вопроса и синонима', () => {
-		expect(phraseKey('Как мне сдать билет?')).toBe(phraseKey('сдать билет'));
+describe('escapeHtml', () => {
+	it('экранирует недоверенный текст для ответа MAX', () => {
+		expect(escapeHtml('Багаж < 10 кг & A > B')).toBe('Багаж &lt; 10 кг &amp; A &gt; B');
 	});
 });

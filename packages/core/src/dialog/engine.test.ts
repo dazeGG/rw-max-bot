@@ -1,389 +1,368 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
 import { flattenSeed, SEED_SETTINGS } from '../content/seed-data';
 import { ContentTree } from '../content/tree';
 
 import { DialogEngine } from './engine';
 import { MemorySessionStore } from './memory-sessions';
+import { DEFAULT_SEARCH_POLICY } from './search';
+import type { Candidate, DialogSearch } from './search';
 import type { UnrecognizedEvent } from './types';
 
 const tree = new ContentTree(flattenSeed(), SEED_SETTINGS);
 const user = { id: 42 };
+const node = (code: string) => tree.getByCode(code)!;
+const candidates = (...items: Array<[string, number]>): Candidate[] => items.map(([code, score]) => ({ node: node(code), score }));
+const options = (text: string) => text.split('\n').filter(line => /^\d+\. /.test(line)).map(line => line.replace(/^\d+\. /, ''));
 
 let sessions: MemorySessionStore;
 let unrecognized: UnrecognizedEvent[];
+let rank: Mock<DialogSearch['rank']>;
 let engine: DialogEngine;
 
 const currentCode = async () => tree.get((await sessions.get(user.id)).nodeId)?.code;
-const say = (text: string) => engine.handle(user, { type: 'text', text });
-// Варианты из нумерованного списка в сообщении («2. Талон на трансфер» → «Талон на трансфер»)
-const options = (text: string) => text.split('\n').filter(line => /^\d+\. /.test(line)).map(line => line.replace(/^\d+\. /, ''));
+const say = (text: string) => engine.process(user, { type: 'text', text });
+const at = (code: string, choices: string[] = []) => sessions.set(user.id, { nodeId: node(code).id, choices: choices.map(code => node(code).id) });
 
 beforeEach(async () => {
 	sessions = new MemorySessionStore();
 	unrecognized = [];
-	engine = new DialogEngine(() => tree, sessions, { onUnrecognized: event => void unrecognized.push(event) });
+	rank = vi.fn<DialogSearch['rank']>().mockResolvedValue([]);
+	engine = new DialogEngine(() => tree, sessions, { rank }, { onUnrecognized: event => void unrecognized.push(event) });
 	await engine.handle(user, { type: 'start' });
 });
 
-describe('свободный текст ведет в нужный раздел', () => {
-	it.each([
-		['Здравствуйте, как мне купить билет на поезд?', 'buy'],
-		['где купить билеты', 'buy'],
-		['билт на поезд', 'buy'],
-		['сколько стоит детский билет', 'faq-child'],
-		['сколько стоит билет для ребенка', 'faq-child'],
-		['сколько стоит билет', 'tariffs'],
-		['нужен дубликат чека', 'paid-services'],
-		['справка о стоимости проезда', 'faq-certificate'],
-		['как купить билет дешевле', 'faq-cheaper'],
-		['можно ли с собакой', 'faq-pets'],
-		['где камера хранения', 'faq-storage'],
-		['кормят в поезде?', 'onboard-dining'],
-		['забыл сумку в вагоне', 'forgotten'],
-		['телефон поддержки', 'support'],
-		['расписание трансфера', 'transfer-schedule'],
-		['льготы', 'privileges'],
-		['скидки', 'promo'],
-		['за сколько дней начинается продажа билетов', 'faq-sale-start'],
-		['я инвалид, кто поможет?', 'limited-mobility'],
-	])('«%s» → %s', async (text, code) => {
-		await say(text);
-		expect(await currentCode()).toBe(code);
-	});
-});
+describe('контракт семантического поиска', () => {
+	it('свободный вопрос выбирает только результат внедрённого поиска', async () => {
+		rank.mockResolvedValue(candidates(['faq-storage', 0.91234]));
+		const { event, replies } = await say('Где оставить чемодан?');
 
-describe('уточняющие вопросы, как в чат-боте РЖД', () => {
-	it('«сдать билет» → вопрос с вариантами в тексте → ответ текстом', async () => {
-		const [question] = await say('хочу сдать билет');
-
-		expect(await currentCode()).toBe('refund');
-		expect(options(question.text)).toContain('Билет на поезд');
-		expect(options(question.text)).toContain('Талон на трансфер');
-
-		await say('трансфер');
-		expect(await currentCode()).toBe('transfer-refund');
+		expect(event).toMatchObject({ type: 'answer', nodeCode: 'faq-storage', text: 'Где оставить чемодан?' });
+		expect(event.details).toMatchObject({ fromNodeCode: 'root', normalized: 'где оставить чемодан', candidates: [{ code: 'faq-storage', score: 0.912 }] });
+		expect(replies[0].text).toBe(node('faq-storage').text);
+		expect(rank).toHaveBeenCalledOnce();
+		expect(rank.mock.calls[0][2]).toBe('где оставить чемодан');
+		expect(rank.mock.calls[0][3]).toBeUndefined();
 	});
 
-	it.each([
-		['расписание', 'transfer-schedule'],
-		['тарифы', 'transfer-tariffs'],
-		['возврат', 'transfer-refund'],
-		['льготы', 'transfer-privileges'],
-	])('короткий вопрос внутри раздела дополняется им: «%s» в «Трансфере» → %s', async (text, code) => {
-		await say('трансфер');
-		await say(text);
+	it('совпадение с названием или прежним синонимом не заменяет результат модели', async () => {
+		const { event } = await say('купить билет');
 
-		expect(await currentCode()).toBe(code);
+		expect(event.type).toBe('unrecognized');
+		expect(await currentCode()).toBe('root');
+		expect(rank).toHaveBeenCalledOnce();
 	});
 
-	it('после ответа соседний пункт тоже понимается коротко: «тарифы» после расписания трансфера', async () => {
-		await say('трансфер');
-		await say('расписание');
-		await say('тарифы');
+	it('низкая оценка означает непонятый запрос и сохраняется в статистике', async () => {
+		rank.mockResolvedValue(candidates(['support', 0.6]));
+		const { event, replies } = await say('вопрос вне справочника');
 
-		expect(await currentCode()).toBe('transfer-tariffs');
+		expect(event).toMatchObject({ type: 'unrecognized', details: { candidates: [{ code: 'support', score: 0.6 }] } });
+		expect(replies[0].text).toContain(SEED_SETTINGS['text.fallback']);
+		expect(options(replies[0].text)).toContain('Купить билет');
+		expect(unrecognized).toEqual([{ userId: user.id, text: 'вопрос вне справочника', nodeId: tree.root.id }]);
 	});
 
-	it('вопрос из другой ветки внутри раздела не перехватывается', async () => {
-		await say('трансфер');
-		await say('расписание поездов');
+	it('оценки сортируются по сходству, а не порядку разделов или результатов', async () => {
+		rank.mockResolvedValue(candidates(['buy', 0.82], ['support', 0.94]));
 
-		expect(await currentCode()).toBe('schedule');
+		expect((await say('вопрос')).event).toMatchObject({ type: 'answer', nodeCode: 'support' });
 	});
 
-	it('короткий ответ учитывает контекст: «якутск» после «купить билет» → касса в Якутске', async () => {
-		await say('купить билет');
-		await say('якутск');
+	it('порог и зазор неоднозначности задаются политикой поиска', async () => {
+		const local = new DialogEngine(() => tree, sessions, { rank }, {}, { threshold: 0.7, ambiguityGap: 0.01 });
+		rank.mockResolvedValue(candidates(['support', 0.75]));
 
-		expect(await currentCode()).toBe('buy-yakutsk');
+		expect((await local.process(user, { type: 'text', text: 'вопрос' })).event.nodeCode).toBe('support');
 	});
 
-	it.each([
-		['онлайн', 'buy-online'],
-		['через интернет', 'buy-online'],
-		['в кассе', 'buy-offline'],
-		['оффлайн', 'buy-offline'],
-	])('«купить билет» → «%s» → %s', async (answer, code) => {
-		await say('купить билет');
-		await say(answer);
+	it('близкие оценки дают уточнение и сохраняют варианты', async () => {
+		rank.mockResolvedValue(candidates(['support', 0.9], ['question', 0.895]));
+		const { event, replies } = await say('помогите разобраться');
 
-		expect(await currentCode()).toBe(code);
+		expect(event).toMatchObject({ type: 'clarify', nodeCode: 'root', details: { suggested: ['support', 'question'] } });
+		expect(replies[0].text).toContain(SEED_SETTINGS['text.didYouMean']);
+		expect((await sessions.get(user.id)).choices).toEqual([node('support').id, node('question').id]);
 	});
 
-	it('при равных вариантах бот переспрашивает и понимает ответ на уточнение', async () => {
-		const [reply] = await say('благовещенск');
+	it('кандидат ниже порога не предлагается как уточнение', async () => {
+		rank.mockResolvedValue(candidates(['support', DEFAULT_SEARCH_POLICY.threshold + 0.005], ['question', DEFAULT_SEARCH_POLICY.threshold - 0.001]));
 
-		expect(reply.text).toContain(SEED_SETTINGS['text.didYouMean']);
-		expect(options(reply.text)).toContain('Благовещенск');
-		expect(options(reply.text)).toContain('Поезд №317/№318 | Нижний Бестях – Благовещенск');
-
-		await say('поезд');
-		expect(await currentCode()).toBe('schedule-train-317318');
+		expect((await say('вопрос')).event).toMatchObject({ type: 'answer', nodeCode: 'support' });
 	});
 
-	it('новый вопрос посреди уточнения уводит в другой раздел', async () => {
-		await say('сдать билет');
-		await say('как провозить животных');
+	it('разные переходы в один ответ не создают неоднозначности', async () => {
+		await at('refund');
+		rank.mockResolvedValue(candidates(['refund-train', 0.9], ['faq-refund', 0.895]));
 
-		expect(await currentCode()).toBe('faq-pets');
-	});
-});
-
-describe('ответ номером варианта', () => {
-	it('номер выбирает пункт из списка текущего раздела', async () => {
-		const [transfer] = await say('трансфер');
-
-		expect(options(transfer.text)[0]).toBe('Расписание трансфера');
-
-		await say('1');
-		expect(await currentCode()).toBe('transfer-schedule');
+		expect((await say('на поезд')).event).toMatchObject({ type: 'answer', nodeCode: 'faq-refund' });
 	});
 
-	it('номер выбирает из вариантов уточнения', async () => {
-		const [question] = await say('благовещенск');
-		const index = options(question.text).indexOf('Поезд №317/№318 | Нижний Бестях – Благовещенск');
+	it('уточняющий раздел поглощает свои варианты ответа', async () => {
+		rank.mockResolvedValue(candidates(['refund', 0.9], ['faq-refund', 0.895], ['transfer-refund', 0.89]));
 
-		await say(`${index + 1}.`);
-		expect(await currentCode()).toBe('schedule-train-317318');
+		expect((await say('вернуть покупку')).event).toMatchObject({ type: 'answer', nodeCode: 'refund' });
 	});
 
-	it('после «не понял» номер выбирает раздел главного меню', async () => {
-		const [fallback] = await say('асдфыва');
-		const index = options(fallback.text).indexOf('Трансфер');
+	it('более точный дочерний ответ не заменяется менее уверенным родительским разделом', async () => {
+		rank.mockResolvedValue(candidates(['buy-online', 0.895], ['buy', 0.877]));
 
-		await say(String(index + 1));
+		expect((await say('как купить билеты онлайн')).event).toMatchObject({ type: 'answer', nodeCode: 'buy-online' });
+	});
+
+	it('более уверенный ответ поезда не поглощается общим вопросом о возврате через goto', async () => {
+		rank.mockResolvedValue(candidates(['faq-refund', 0.873], ['refund', 0.868]));
+
+		expect((await say('вернуть билет на поезд')).event).toMatchObject({ type: 'answer', nodeCode: 'faq-refund' });
+	});
+
+	it('при равных оценках родительский вопрос предпочтительнее его варианта', async () => {
+		rank.mockResolvedValue(candidates(['buy-online', 0.9], ['buy', 0.9]));
+
+		expect((await say('покупка')).event).toMatchObject({ type: 'answer', nodeCode: 'buy' });
+	});
+
+	it('более уверенный раздел поглощает внука, даже если промежуточного раздела нет среди кандидатов', async () => {
+		rank.mockResolvedValue(candidates(['transfer', 0.89], ['transfer-privileges-pensioners', 0.88]));
+
+		expect((await say('трансфер')).event).toMatchObject({ type: 'answer', nodeCode: 'transfer' });
+	});
+
+	it('более уверенный внук сохраняется вместо общего раздела', async () => {
+		rank.mockResolvedValue(candidates(['transfer-privileges-pensioners', 0.89], ['transfer', 0.88]));
+
+		expect((await say('трансфер для пенсионера')).event).toMatchObject({ type: 'answer', nodeCode: 'transfer-privileges-pensioners' });
+	});
+
+	it('goto обратно в родителя не удаляет самого родителя из вариантов уточнения', async () => {
+		const changed = flattenSeed().map(item => item.code === 'refund-train' ? { ...item, targetId: node('refund').id } : item);
+		const localTree = new ContentTree(changed, SEED_SETTINGS);
+		const local = new DialogEngine(() => localTree, new MemorySessionStore(), { rank });
+		rank.mockResolvedValue(candidates(['refund', 0.91], ['support', 0.9]));
+		const { event } = await local.process(user, { type: 'text', text: 'вопрос' });
+
+		expect(event.type).toBe('clarify');
+		expect(event.details.suggested).toEqual(['refund', 'support']);
+	});
+
+	it('новый вопрос во время уточнения может уйти в другую тему', async () => {
+		await at('root', ['support', 'question']);
+		rank.mockResolvedValue(candidates(['faq-pets', 0.91]));
+
+		expect((await say('можно ли ехать с собакой')).event).toMatchObject({ type: 'answer', nodeCode: 'faq-pets' });
+	});
+
+	it('короткий ответ сужает поиск до прежних вариантов при близкой оценке E5', async () => {
+		await at('root', ['support', 'question']);
+		rank.mockResolvedValue(candidates(['buy', 0.91], ['support', 0.9], ['question', 0.85]));
+
+		expect((await say('телефон')).event).toMatchObject({ type: 'answer', nodeCode: 'support' });
+	});
+
+	it('короткий ответ не удерживается в уточнении при заметно лучшем глобальном результате', async () => {
+		await at('root', ['support', 'question']);
+		rank.mockResolvedValue(candidates(['faq-pets', 0.94], ['support', 0.88]));
+
+		expect((await say('с собакой')).event).toMatchObject({ type: 'answer', nodeCode: 'faq-pets' });
+	});
+
+	it('прежний вариант ниже порога не становится ответом даже при близости оценок', async () => {
+		await at('root', ['support', 'question']);
+		rank.mockResolvedValue(candidates(['buy', DEFAULT_SEARCH_POLICY.threshold + 0.005], ['support', DEFAULT_SEARCH_POLICY.threshold - 0.001]));
+
+		expect((await say('билет')).event).toMatchObject({ type: 'answer', nodeCode: 'buy' });
+	});
+
+	it('полный новый вопрос не сужает глобальный поиск до прежних вариантов', async () => {
+		await at('root', ['support', 'question']);
+		rank.mockResolvedValue(candidates(['faq-pets', 0.91], ['support', 0.905]));
+		const { event } = await say('как мне ехать с большой собакой');
+
+		expect(event.type).toBe('clarify');
+		expect(event.details.suggested).toEqual(['faq-pets', 'support']);
+	});
+
+	it('модели передаётся текущий раздел без прибавок к её оценкам', async () => {
+		await at('transfer');
+		rank.mockResolvedValue(candidates(['transfer-schedule', 0.88]));
+		const { event } = await say('а когда отправление');
+
+		expect(rank.mock.calls[0][3]).toBe(node('transfer'));
+		expect(event.details.candidates).toEqual([{ code: 'transfer-schedule', score: 0.88 }]);
+	});
+
+	it('после конечного ответа контекстом служит родитель раздела', async () => {
+		await at('transfer-schedule');
+		await say('а сколько стоит');
+
+		expect(rank.mock.calls[0][3]).toBe(node('transfer'));
+	});
+
+	it('корень, неактивные разделы и несвязанные goto не включаются в поиск', async () => {
+		await say('вопрос');
+		const passed = rank.mock.calls[0][1].map(item => item.code);
+
+		expect(passed).not.toContain('root');
+		expect(passed).not.toContain('schedule-train-321322');
+		expect(passed).not.toContain('refund-train');
+	});
+
+	it('goto текущего вопроса включается в поиск', async () => {
+		await at('refund');
+		await say('на поезд');
+
+		expect(rank.mock.calls[0][1].map(item => item.code)).toContain('refund-train');
+	});
+
+	it('посторонние узлы и нечисловые оценки не могут быть выбраны', async () => {
+		rank.mockResolvedValue([{ node: tree.root, score: 1 }, ...candidates(['support', Number.NaN])]);
+
+		expect((await say('вопрос')).event.type).toBe('unrecognized');
+	});
+
+	it('ошибка модели не запускает старый поиск и не меняет сессию', async () => {
+		await at('transfer');
+		rank.mockRejectedValue(new Error('E5 unavailable'));
+
+		await expect(say('купить билет')).rejects.toThrow('E5 unavailable');
 		expect(await currentCode()).toBe('transfer');
-	});
-
-	it('номер вне списка не выбирает случайный пункт', async () => {
-		await say('трансфер');
-		await say('99');
-
-		expect(await currentCode()).not.toMatch(/^transfer-/);
-	});
-
-	it('номер вне списка не ищется по тексту: «5» не открывает «детский билет» (синоним «ребенок до 5 лет»)', async () => {
-		await say('купить билет');
-		await say('в кассе');
-		await say('нижний бестях');
-		const [reply] = await say('5');
-
-		expect(await currentCode()).toBe('root');
-		expect(reply.text).toContain(SEED_SETTINGS['text.fallback']);
-	});
-
-	it('номер поезда по-прежнему ищется как текст', async () => {
-		const [reply] = await say('327');
-
-		expect(reply.text).toContain(SEED_SETTINGS['text.didYouMean']);
-		expect(options(reply.text)).toContain('Поезд №327/№328 | Нижний Бестях – Тында');
-	});
-
-	it('после конечного ответа номер выбирает из списка, откуда этот ответ открыли', async () => {
-		await say('купить билет');
-		await say('в кассе');
-		await say('1');
-		expect(await currentCode()).toBe('buy-tommot');
-
-		await say('2');
-		expect(await currentCode()).toBe('buy-aldan');
+		expect(unrecognized).toEqual([]);
 	});
 });
 
-describe('навигация текстом', () => {
-	it('приветствие без вопроса → стартовое сообщение', async () => {
-		const replies = await say('Добрый день!');
-
-		expect(replies).toHaveLength(1);
-		expect(await currentCode()).toBe('root');
+describe('протокольная навигация не требует модели', () => {
+	it('start и чистое приветствие открывают главное меню', async () => {
+		const start = await engine.process(user, { type: 'start' });
+		expect(start.event).toEqual({ type: 'start', nodeId: tree.root.id, nodeCode: 'root', text: null, details: {} });
+		expect((await say('Добрый день!')).event.type).toBe('start');
+		expect(rank).not.toHaveBeenCalled();
 	});
 
-	it('приветствие с вопросом → приветствие и ответ', async () => {
-		const replies = await say('Здравствуйте, где купить билет?');
+	it('приветствие с вопросом сохраняется перед ответом', async () => {
+		rank.mockResolvedValue(candidates(['buy', 0.9]));
+		const { replies, event } = await say('Здравствуйте, где купить билет?');
 
 		expect(replies).toHaveLength(2);
 		expect(replies[0].text).toBe(SEED_SETTINGS['text.greeting']);
+		expect(event.details.greeting).toBe(true);
 	});
 
-	it('«назад» и «меню»', async () => {
-		await say('пассажирские поезда');
-		expect(await currentCode()).toBe('schedule-trains');
+	it('назад и меню перемещают по дереву', async () => {
+		await at('schedule-trains');
+		expect((await say('назад')).event).toMatchObject({ type: 'back', nodeCode: 'schedule' });
+		expect((await say('меню')).event).toMatchObject({ type: 'menu', nodeCode: 'root' });
+		expect(rank).not.toHaveBeenCalled();
+	});
 
-		await say('назад');
-		expect(await currentCode()).toBe('schedule');
+	it('номер выбирает пункт текущего раздела', async () => {
+		await at('transfer');
+		expect((await say('1')).event).toMatchObject({ type: 'option', nodeCode: 'transfer-schedule', details: { option: 1 } });
+		expect(rank).not.toHaveBeenCalled();
+	});
 
-		await say('меню');
+	it('номер с точкой выбирает из вариантов уточнения', async () => {
+		await at('root', ['support', 'question']);
+		expect((await say('2.')).event).toMatchObject({ type: 'option', nodeCode: 'question', details: { shown: ['support', 'question'] } });
+		expect(rank).not.toHaveBeenCalled();
+	});
+
+	it('после конечного ответа номер относится к списку родителя', async () => {
+		await at('buy-tommot');
+		expect((await say('2')).event).toMatchObject({ type: 'option', nodeCode: 'buy-aldan' });
+		expect(rank).not.toHaveBeenCalled();
+	});
+
+	it('номер вне списка не ищется моделью', async () => {
+		await at('transfer');
+		expect((await say('99')).event).toMatchObject({ type: 'unrecognized', details: { unmatchedOption: 99, candidates: [] } });
 		expect(await currentCode()).toBe('root');
+		expect(rank).not.toHaveBeenCalled();
 	});
 
-	it('варианты ответа и ссылки перечисляются в тексте', async () => {
-		const [rules] = await say('правила перевозки');
-
-		expect(options(rules.text)).toContain('<a href="https://rw-y.ru/passengers/rules#1">Оформление перевозки пассажиров</a>');
+	it('трёхзначный номер поезда передаётся модели как текст', async () => {
+		await say('327');
+		expect(rank.mock.calls[0][2]).toBe('327');
 	});
 
-	it('«назад» после ссылки возвращает в раздел, где она лежит', async () => {
-		await say('купить билет');
-		await say('якутск');
-		await say('2гис');
-		expect(await currentCode()).toBe('buy-yakutsk-2gis');
+	it('после fallback номер открывает тему главного меню', async () => {
+		const { replies } = await say('неизвестный вопрос');
+		const index = options(replies[0].text).indexOf('Трансфер');
+		rank.mockClear();
 
-		await say('назад');
-		expect(await currentCode()).toBe('buy-yakutsk');
+		expect((await say(String(index + 1))).event.nodeCode).toBe('transfer');
+		expect(rank).not.toHaveBeenCalled();
 	});
 
-	it('скрытые разделы не перечисляются в списке тем', async () => {
-		const [root] = await say('меню');
-		expect(root.text).not.toContain('Возврат билета');
+	it('да и нет после конечного ответа не вызывают модель', async () => {
+		await at('support');
+		const more = await say('да');
+		expect(more.event.type).toBe('more');
+		expect(more.replies[0].text).toContain(SEED_SETTINGS['text.askMore']);
+		await at('support');
+		expect((await say('нет, спасибо!')).replies).toEqual([{ text: SEED_SETTINGS['text.goodbye'] }]);
+		expect(rank).not.toHaveBeenCalled();
 	});
 
-	it('неактивные разделы не перечисляются и не находятся', async () => {
-		const [trains] = await say('пассажирские поезда');
-
-		expect(trains.text).not.toContain('Поезд №321/№322');
-
-		await say('321');
-		expect(await currentCode()).not.toBe('schedule-train-321322');
+	it('новый вопрос после конечного ответа всё ещё передаётся модели', async () => {
+		await at('support');
+		rank.mockResolvedValue(candidates(['buy', 0.9]));
+		expect((await say('где купить билет')).event.nodeCode).toBe('buy');
+		expect(rank).toHaveBeenCalledOnce();
 	});
 });
 
-describe('«Могу ли я ещё Вам чем-то помочь?» в конце цепочки', () => {
-	it('после конечного ответа и ссылки — отдельным сообщением, после вопроса с вариантами — нет', async () => {
-		const buy = await say('купить билет');
-		expect(buy).toHaveLength(1);
-
-		const office = await say('якутск');
-		expect(office).toHaveLength(1);
-
-		const link = await say('2гис');
-		expect(link.map(reply => reply.text)).toEqual([expect.stringContaining('2gis'), SEED_SETTINGS['text.anythingElse']]);
+describe('рендеринг и целостность дерева', () => {
+	it('ссылки и изображения остаются в ответах', () => {
+		expect(engine.render(tree, node('tariffs-yakutia')).image).toBe('generated/tariffs.jpg');
+		expect(engine.render(tree, node('rules')).text).toContain('<a href="https://rw-y.ru/passengers/rules#1">Оформление перевозки пассажиров</a>');
 	});
 
-	it('«да» — список тем, «нет, спасибо» — прощание', async () => {
-		await say('питание в пути');
-		const [more] = await say('да');
+	it('файл и экранированный заголовок сохраняются', () => {
+		const changed = flattenSeed().map(item => item.code === 'support'
+			? { ...item, title: 'Багаж < 10 кг & A', text: null, file: 'files/support.pdf', fileName: 'Контакты.pdf' }
+			: item);
+		const localTree = new ContentTree(changed, SEED_SETTINGS);
+		const reply = engine.render(localTree, localTree.getByCode('support')!);
 
-		expect(more.text).toContain(SEED_SETTINGS['text.askMore']);
-		expect(options(more.text)).toContain('Купить билет');
-		expect(await currentCode()).toBe('root');
-
-		await say('питание в пути');
-		const replies = await say('Нет, спасибо!');
-
-		expect(replies).toEqual([{ text: SEED_SETTINGS['text.goodbye'] }]);
-		expect(await currentCode()).toBe('root');
-	});
-
-	it('новый вопрос вместо «да» обрабатывается как обычно', async () => {
-		await say('питание в пути');
-		await say('где купить билет');
-
-		expect(await currentCode()).toBe('buy');
-	});
-});
-
-describe('целостность дерева', () => {
-	it('goto в выключенный раздел не показывается', () => {
-		const nodes = flattenSeed().map(n => n.code === 'faq-refund' ? { ...n, isActive: false } : n);
-		const pruned = new ContentTree(nodes, SEED_SETTINGS);
-		const refund = pruned.getByCode('refund')!;
-
-		expect(pruned.children(refund).map(n => n.code)).toEqual(['refund-transfer']);
-	});
-
-	it('HTML в названии экранируется', async () => {
-		const nodes = flattenSeed().map(n => n.code === 'support' ? { ...n, title: 'Багаж < 10 кг & A', text: null, synonyms: ['поддержка'] } : n);
-		const local = new DialogEngine(() => new ContentTree(nodes, SEED_SETTINGS), new MemorySessionStore());
-
-		const [reply] = await local.handle(user, { type: 'text', text: 'поддержка' });
 		expect(reply.text).toBe('<b>Багаж &lt; 10 кг &amp; A</b>');
-	});
-});
-
-describe('непонятный ввод (ТЗ п. 3.9)', () => {
-	it('подсказка со списком тем и запись в журнал', async () => {
-		const [reply] = await say('асдфыва');
-
-		expect(reply.text).toContain(SEED_SETTINGS['text.fallback']);
-		expect(options(reply.text)).toContain('Купить билет');
-		expect(unrecognized).toEqual([{ userId: user.id, text: 'асдфыва', nodeId: tree.root.id }]);
-	});
-});
-
-describe('вложения', () => {
-	it('раздел с картинкой и раздел с файлом', async () => {
-		const nodes = flattenSeed().map(n => n.code === 'support' ? { ...n, file: 'files/support.pdf', fileName: 'Контакты.pdf' } : n);
-		const local = new DialogEngine(() => new ContentTree(nodes, SEED_SETTINGS), new MemorySessionStore());
-
-		await say('тарифы');
-		const [tariffs] = await say('ждя');
-		const [support] = await local.handle(user, { type: 'text', text: 'служба поддержки' });
-
-		expect(tariffs.image).toBe('generated/tariffs.jpg');
-		expect(support.file).toEqual({ path: 'files/support.pdf', name: 'Контакты.pdf' });
-	});
-});
-
-describe('запись для статистики', () => {
-	const track = async (text: string) => (await engine.process(user, { type: 'text', text })).event;
-	const id = (code: string) => tree.getByCode(code)!.id;
-
-	it('старт', async () => {
-		const { event } = await engine.process(user, { type: 'start' });
-
-		expect(event).toEqual({ type: 'start', nodeId: tree.root.id, nodeCode: 'root', text: null, details: {} });
+		expect(reply.file).toEqual({ path: 'files/support.pdf', name: 'Контакты.pdf' });
 	});
 
-	it('ответ по тексту: раздел, откуда пришел пользователь, и кандидаты поиска с баллами', async () => {
-		const event = await track('купить билет');
-
-		expect(event).toMatchObject({ type: 'answer', nodeId: id('buy'), nodeCode: 'buy', text: 'купить билет' });
-		expect(event.details).toMatchObject({ fromNodeCode: 'root', normalized: 'купить билет', greeting: false });
-		expect(event.details.shown).toContain('buy');
-		expect(event.details.candidates?.[0]).toEqual({ code: 'buy', score: expect.any(Number) });
+	it('конечный ответ сопровождается вопросом о дополнительной помощи', async () => {
+		rank.mockResolvedValue(candidates(['support', 0.9]));
+		expect((await say('вопрос')).replies.at(-1)?.text).toBe(SEED_SETTINGS['text.anythingElse']);
 	});
 
-	it('номер варианта и номер, которого не было в списке', async () => {
-		await say('купить билет');
-		expect(await track('2')).toMatchObject({ type: 'option', nodeCode: 'buy-offline', details: { option: 2, shown: ['buy-online', 'buy-offline'] } });
-
-		await say('нижний бестях');
-		expect(await track('5')).toMatchObject({ type: 'unrecognized', details: { fromNodeCode: 'buy-bestyakh', shown: ['buy-bestyakh-2gis'], unmatchedOption: 5 } });
+	it('назад после ссылки возвращает в её родительский раздел', async () => {
+		await at('buy-yakutsk-2gis');
+		expect((await say('назад')).event.nodeCode).toBe('buy-yakutsk');
 	});
 
-	it('«назад» и «меню»', async () => {
-		await say('купить билет');
-		await say('в кассе');
-
-		expect(await track('назад')).toMatchObject({ type: 'back', nodeCode: 'buy', details: { fromNodeCode: 'buy-offline' } });
-		expect(await track('меню')).toMatchObject({ type: 'menu', nodeCode: 'root' });
+	it('скрытый раздел доступен поиску, но отсутствует в меню', async () => {
+		expect((await say('меню')).replies[0].text).not.toContain('Возврат билета');
+		await say('вопрос');
+		expect(rank.mock.calls[0][1].map(item => item.code)).toContain('refund');
 	});
 
-	it('goto записывается разделом, куда он ведет', async () => {
-		await say('хочу сдать билет');
+	it('goto в выключенный раздел удаляется из дерева', () => {
+		const changed = flattenSeed().map(item => item.code === 'faq-refund' ? { ...item, isActive: false } : item);
+		const pruned = new ContentTree(changed, SEED_SETTINGS);
 
-		expect(await track('трансфер')).toMatchObject({ type: 'answer', nodeCode: 'transfer-refund' });
+		expect(pruned.children(pruned.getByCode('refund')!).map(item => item.code)).toEqual(['refund-transfer']);
 	});
 
-	it('уточнение — с предложенными вариантами, непонятый ввод — с разделом, где был пользователь', async () => {
-		const clarify = await track('благовещенск');
+	it('циклические ветви не попадают в дерево', () => {
+		const changed = flattenSeed().map(item => item.code === 'buy'
+			? { ...item, parentId: node('buy-offline').id }
+			: item);
+		const pruned = new ContentTree(changed, SEED_SETTINGS);
 
-		expect(clarify).toMatchObject({ type: 'clarify', nodeCode: 'root', text: 'благовещенск' });
-		expect(clarify.details.suggested).toEqual(expect.arrayContaining(['schedule-direct-blagoveshensk', 'schedule-train-317318']));
-
-		expect(await track('асдфыва')).toMatchObject({ type: 'unrecognized', nodeCode: 'root', details: { candidates: [] } });
+		expect(pruned.getByCode('buy')).toBeUndefined();
+		expect(pruned.getByCode('buy-offline')).toBeUndefined();
 	});
 
-	it('«да» и «нет» на «Могу ли я ещё Вам чем-то помочь?»', async () => {
-		await say('служба поддержки');
-		expect(await track('да')).toMatchObject({ type: 'more', details: { fromNodeCode: 'support' } });
-
-		await say('служба поддержки');
-		expect(await track('нет, спасибо')).toMatchObject({ type: 'goodbye' });
-	});
-
-	it('приветствие перед вопросом', async () => {
-		expect(await track('Здравствуйте, как купить билет?')).toMatchObject({ type: 'answer', nodeCode: 'buy', details: { greeting: true } });
+	it('отсутствие активного корня остаётся ошибкой', () => {
+		expect(() => new ContentTree(flattenSeed().filter(item => item.code !== 'root'), SEED_SETTINGS)).toThrow('no active node');
 	});
 });

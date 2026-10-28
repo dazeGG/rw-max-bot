@@ -16,7 +16,10 @@ export class ContentCache {
 	private timer: NodeJS.Timeout | null = null;
 	private refreshing: Promise<void> | null = null;
 
-	constructor (private readonly api: ApiClient) {}
+	constructor (
+		private readonly api: ApiClient,
+		private readonly prepare: (tree: ContentTree) => Promise<void> = async () => undefined,
+	) {}
 
 	// Без контента отвечать нечем: при старте ждем, пока API станет доступен
 	async init (refreshSeconds: number): Promise<void> {
@@ -44,7 +47,11 @@ export class ContentCache {
 		const snapshot = await this.api.getContent(this.tree ? this.version : undefined);
 
 		if (snapshot) {
-			this.tree = new ContentTree(snapshot.nodes, snapshot.settings);
+			const tree = new ContentTree(snapshot.nodes, snapshot.settings);
+			// Публикуем дерево и его версию только после готовности семантического индекса.
+			// При ошибке или долгой подготовке прежний контент остаётся доступным.
+			await this.prepare(tree);
+			this.tree = tree;
 			this.version = snapshot.version;
 		}
 	}
