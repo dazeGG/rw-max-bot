@@ -42,7 +42,7 @@ describe('контракт семантического поиска', () => {
 		expect(event.details).toMatchObject({ fromNodeCode: 'root', normalized: 'где оставить чемодан', candidates: [{ code: 'faq-storage', score: 0.912 }] });
 		expect(replies[0].text).toBe(node('faq-storage').text);
 		expect(rank).toHaveBeenCalledOnce();
-		expect(rank.mock.calls[0][2]).toBe('где оставить чемодан');
+		expect(rank.mock.calls[0][2]).toBe('Где оставить чемодан?');
 		expect(rank.mock.calls[0][3]).toBeUndefined();
 	});
 
@@ -86,10 +86,10 @@ describe('контракт семантического поиска', () => {
 		expect((await sessions.get(user.id)).choices).toEqual([node('support').id, node('question').id]);
 	});
 
-	it('кандидат ниже порога не предлагается как уточнение', async () => {
+	it('близкий конкурент ниже порога не превращает победителя в уверенный ответ', async () => {
 		rank.mockResolvedValue(candidates(['support', DEFAULT_SEARCH_POLICY.threshold + 0.005], ['question', DEFAULT_SEARCH_POLICY.threshold - 0.001]));
 
-		expect((await say('вопрос')).event).toMatchObject({ type: 'answer', nodeCode: 'support' });
+		expect((await say('вопрос')).event).toMatchObject({ type: 'clarify', details: { suggested: ['support', 'question'] } });
 	});
 
 	it('разные переходы в один ответ не создают неоднозначности', async () => {
@@ -153,9 +153,11 @@ describe('контракт семантического поиска', () => {
 		expect((await say('можно ли ехать с собакой')).event).toMatchObject({ type: 'answer', nodeCode: 'faq-pets' });
 	});
 
-	it('короткий ответ сужает поиск до прежних вариантов при близкой оценке E5', async () => {
+	it('ответ на явное уточнение может выбрать вариант с независимым подтверждением подписи', async () => {
 		await at('root', ['support', 'question']);
-		rank.mockResolvedValue(candidates(['buy', 0.91], ['support', 0.9], ['question', 0.85]));
+		rank.mockImplementation(async (_tree, _nodes, _text, mode) => mode === 'options'
+			? candidates(['support', 0.98], ['question', 0.5])
+			: candidates(['buy', 0.91], ['support', 0.9], ['question', 0.85]));
 
 		expect((await say('телефон')).event).toMatchObject({ type: 'answer', nodeCode: 'support' });
 	});
@@ -167,36 +169,41 @@ describe('контракт семантического поиска', () => {
 		expect((await say('с собакой')).event).toMatchObject({ type: 'answer', nodeCode: 'faq-pets' });
 	});
 
-	it('прежний вариант ниже порога не становится ответом даже при близости оценок', async () => {
+	it('прежний вариант около порога остаётся признаком неоднозначности, но не уверенным ответом', async () => {
 		await at('root', ['support', 'question']);
-		rank.mockResolvedValue(candidates(['buy', DEFAULT_SEARCH_POLICY.threshold + 0.005], ['support', DEFAULT_SEARCH_POLICY.threshold - 0.001]));
+		rank.mockImplementation(async (_tree, _nodes, _text, mode) => mode === 'options'
+			? candidates(['support', 0.5])
+			: candidates(['buy', DEFAULT_SEARCH_POLICY.threshold + 0.005], ['support', DEFAULT_SEARCH_POLICY.threshold - 0.001]));
 
-		expect((await say('билет')).event).toMatchObject({ type: 'answer', nodeCode: 'buy' });
+		expect((await say('билет')).event).toMatchObject({ type: 'clarify', details: { suggested: ['buy', 'support'] } });
 	});
 
-	it('полный новый вопрос не сужает глобальный поиск до прежних вариантов', async () => {
+	it('новый вопрос не сужается до прежних вариантов без подтверждения их подписей', async () => {
 		await at('root', ['support', 'question']);
-		rank.mockResolvedValue(candidates(['faq-pets', 0.91], ['support', 0.905]));
+		rank.mockImplementation(async (_tree, _nodes, _text, mode) => mode === 'options'
+			? candidates(['support', 0.5], ['question', 0.4])
+			: candidates(['faq-pets', 0.91], ['support', 0.905]));
 		const { event } = await say('как мне ехать с большой собакой');
 
 		expect(event.type).toBe('clarify');
 		expect(event.details.suggested).toEqual(['faq-pets', 'support']);
 	});
 
-	it('модели передаётся текущий раздел без прибавок к её оценкам', async () => {
+	it('глобальный поиск получает исходный вопрос без текущего раздела и прибавок', async () => {
 		await at('transfer');
 		rank.mockResolvedValue(candidates(['transfer-schedule', 0.88]));
 		const { event } = await say('а когда отправление');
 
-		expect(rank.mock.calls[0][3]).toBe(node('transfer'));
+		expect(rank.mock.calls[0][2]).toBe('а когда отправление');
+		expect(rank.mock.calls[0][3]).toBeUndefined();
 		expect(event.details.candidates).toEqual([{ code: 'transfer-schedule', score: 0.88 }]);
 	});
 
-	it('после конечного ответа контекстом служит родитель раздела', async () => {
+	it('после конечного ответа родительский раздел не передаётся как контекст', async () => {
 		await at('transfer-schedule');
 		await say('а сколько стоит');
 
-		expect(rank.mock.calls[0][3]).toBe(node('transfer'));
+		expect(rank.mock.calls.every(call => call[3] === undefined)).toBe(true);
 	});
 
 	it('корень, неактивные разделы и несвязанные goto не включаются в поиск', async () => {
@@ -208,11 +215,18 @@ describe('контракт семантического поиска', () => {
 		expect(passed).not.toContain('refund-train');
 	});
 
-	it('goto текущего вопроса включается в поиск', async () => {
-		await at('refund');
-		await say('на поезд');
+	it('goto доступен только как явно показанный вариант, а не глобальное знание', async () => {
+		await at('refund', ['refund-train', 'refund-transfer']);
+		rank.mockImplementation(async (_tree, _nodes, _text, mode) => mode === 'options'
+			? candidates(['refund-train', 0.97], ['refund-transfer', 0.5])
+			: []);
+		const { event } = await say('на поезд');
+		const global = rank.mock.calls.find(call => call[3] === undefined);
+		const scoped = rank.mock.calls.find(call => call[3] === 'options');
 
-		expect(rank.mock.calls[0][1].map(item => item.code)).toContain('refund-train');
+		expect(global?.[1].map(item => item.code)).not.toContain('refund-train');
+		expect(scoped?.[1].map(item => item.code)).toEqual(['refund-train', 'refund-transfer']);
+		expect(event).toMatchObject({ type: 'answer', nodeCode: 'faq-refund' });
 	});
 
 	it('посторонние узлы и нечисловые оценки не могут быть выбраны', async () => {
@@ -255,8 +269,8 @@ describe('протокольная навигация не требует мод
 		expect(rank).not.toHaveBeenCalled();
 	});
 
-	it('номер выбирает пункт текущего раздела', async () => {
-		await at('transfer');
+	it('номер выбирает явно показанный пункт текущего раздела', async () => {
+		await at('transfer', tree.visibleChildren(node('transfer')).map(item => item.code));
 		expect((await say('1')).event).toMatchObject({ type: 'option', nodeCode: 'transfer-schedule', details: { option: 1 } });
 		expect(rank).not.toHaveBeenCalled();
 	});
@@ -267,9 +281,9 @@ describe('протокольная навигация не требует мод
 		expect(rank).not.toHaveBeenCalled();
 	});
 
-	it('после конечного ответа номер относится к списку родителя', async () => {
+	it('после конечного ответа номер не воскрешает непоказанный список родителя', async () => {
 		await at('buy-tommot');
-		expect((await say('2')).event).toMatchObject({ type: 'option', nodeCode: 'buy-aldan' });
+		expect((await say('2')).event).toMatchObject({ type: 'unrecognized', details: { shown: [], unmatchedOption: 2 } });
 		expect(rank).not.toHaveBeenCalled();
 	});
 

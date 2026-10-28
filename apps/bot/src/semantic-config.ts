@@ -14,4 +14,6 @@ const score = (key: string, fallback: number): number => {
 export const semanticPolicy: SearchPolicy = {
 	threshold: score('E5_THRESHOLD', DEFAULT_SEARCH_POLICY.threshold),
 	ambiguityGap: score('E5_AMBIGUITY_GAP', DEFAULT_SEARCH_POLICY.ambiguityGap),
+	optionThreshold: score('E5_OPTION_THRESHOLD', DEFAULT_SEARCH_POLICY.optionThreshold!),
+	optionGap: score('E5_OPTION_GAP', DEFAULT_SEARCH_POLICY.optionGap!),
 };

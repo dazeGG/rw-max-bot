@@ -19,7 +19,7 @@ export type DialogUser = {
 
 export type Session = {
 	nodeId: number | null;
-	// Разделы, которые бот предложил в ответ на неоднозначный вопрос: следующий ответ ищется прежде всего среди них
+	// Exact last displayed options, not an inherited topic or a parent's unseen menu.
 	choices?: number[];
 };
 

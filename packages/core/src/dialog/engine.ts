@@ -3,7 +3,7 @@ import type { ContentNode } from '../content/types';
 
 import { DEFAULT_SEARCH_POLICY } from './search';
 import type { Candidate, DialogSearch, SearchPolicy } from './search';
-import { escapeHtml, stripGreeting } from './text';
+import { escapeHtml, normalize, stripGreetingRaw } from './text';
 import type { DialogEventDetails, DialogEvents, DialogEventType, DialogInput, DialogResult, DialogUser, Reply, Session, SessionStore } from './types';
 
 const MAX_SUGGESTIONS = 3;
@@ -56,9 +56,10 @@ export class DialogEngine {
 	}
 
 	private async handleText (user: DialogUser, tree: ContentTree, current: ContentNode, session: Session, text: string): Promise<DialogResult> {
-		const { greeting, rest } = stripGreeting(text);
+		const { greeting, rest: query } = stripGreetingRaw(text);
+		const rest = normalize(query);
 		const greetingReplies: Reply[] = greeting ? [{ text: tree.settings['text.greeting'] }] : [];
-		const shown = this.shownOptions(tree, current, session);
+		const shown = this.shownOptions(tree, session);
 		const details: DialogEventDetails = {
 			fromNodeId: current.id,
 			fromNodeCode: current.code,
@@ -70,7 +71,7 @@ export class DialogEngine {
 			this.result(type, node, text, replies, { ...details, ...extra });
 
 		// Чистое приветствие: стартовое сообщение и так начинается с приветствия
-		if (rest === '' || rest === 'start') {
+		if (query.trim() === '' || rest === 'start') {
 			return done('start', tree.root, await this.open(user, tree, tree.root));
 		}
 
@@ -85,9 +86,9 @@ export class DialogEngine {
 
 		// После конечного ответа бот спросил «Могу ли я ещё Вам чем-то помочь?»: «да» — список тем, «нет» — прощание.
 		// Новый вопрос вместо «да» обрабатывается как обычно
-		if (this.isFinal(tree, current) &&!session.choices?.length) {
+		if (this.isFinal(tree, current) && shown.every(node => tree.resolve(node).type === 'link')) {
 			if (YES_WORDS.has(rest)) {
-				await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
+				await this.sessions.set(user.id, { nodeId: tree.root.id, choices: tree.visibleChildren(tree.root).map(node => node.id) });
 				return done('more', tree.root, [{ text: this.withOptions(tree, tree.settings['text.askMore'], tree.visibleChildren(tree.root)) }]);
 			}
 
@@ -99,10 +100,11 @@ export class DialogEngine {
 
 		// Номер варианта из последнего списка: «2» — второй пункт. Номер, которого в списке нет, по тексту не ищется:
 		// иначе «5» совпало бы с синонимом «ребенок до 5 лет». Номера поездов (317) — трехзначные, их ищем как текст
-		const number = /^\d{1,2}$/.test(rest) ? Number(rest) : null;
+		const number = /^\d{1,2}[.)]?$/.test(query.trim()) ? Number(query.trim().replace(/[.)]$/, '')) : null;
 
 		if (number !== null) {
-			const option = shown[number - 1];
+			// Resolve the original slot before filtering deleted/disabled options.
+			const option = tree.get(session.choices?.[number - 1]);
 
 			if (option) {
 				return done('option', tree.resolve(option), await this.open(user, tree, option), { option: number });
@@ -112,7 +114,7 @@ export class DialogEngine {
 		}
 
 		const { choice, ranked }: { choice: Choice; ranked: Candidate[]; } = number === null
-			? await this.choose(tree, current, session, rest)
+			? await this.choose(tree, session, query)
 			: { choice: { kind: 'none' }, ranked: [] };
 		const candidates = ranked.slice(0, MAX_TRACED_CANDIDATES)
 			.map(candidate => ({ code: candidate.node.code, score: Math.round(candidate.score * 1000) / 1000 }));
@@ -123,14 +125,14 @@ export class DialogEngine {
 
 		case 'ambiguous':
 			await this.sessions.set(user.id, { nodeId: current.id, choices: choice.candidates.map(node => node.id) });
-			return done('clarify', current, [...greetingReplies, { text: this.withOptions(tree, tree.settings['text.didYouMean'], choice.candidates) }], {
+			return done('clarify', current, [...greetingReplies, { text: this.withOptions(tree, tree.settings['text.didYouMean'], choice.candidates, true) }], {
 				candidates,
 				suggested: choice.candidates.map(node => node.code),
 			});
 
 		case 'none':
 			await this.events.onUnrecognized?.({ userId: user.id, text, nodeId: current.id });
-			await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
+			await this.sessions.set(user.id, { nodeId: tree.root.id, choices: tree.visibleChildren(tree.root).map(node => node.id) });
 			return done('unrecognized', current, [{ text: this.withOptions(tree, tree.settings['text.fallback'], tree.visibleChildren(tree.root)) }], { candidates });
 		}
 	}
@@ -139,110 +141,106 @@ export class DialogEngine {
 		return { replies, event: { type, nodeId: node.id, nodeCode: node.code, text, details } };
 	}
 
-	// ranked — кандидаты того поиска, который принял решение (для статистики)
-	private async choose (tree: ContentTree, current: ContentNode, session: Session, text: string): Promise<{ choice: Choice; ranked: Candidate[]; }> {
-		// Контекст передаётся модели как данные, без словарей и ручных прибавок к оценкам.
-		const inContext = current.id !== tree.root.id;
-		const offered = new Set(inContext ? tree.children(current).map(node => node.id) : []);
-		const parent = tree.parent(current);
-		const siblings = new Set(inContext && offered.size === 0 && parent && parent.id !== tree.root.id
-			? tree.children(parent).map(node => node.id)
-			: []);
-		const suggested = new Set(session.choices ?? []);
-		// goto-пункты — это варианты ответа на конкретный вопрос («Билет на поезд» в «Возврат билета»):
-		// вне своего вопроса они не участвуют, их цель и так есть в поиске
-		const everywhere = tree.all().filter(node => node.id !== tree.root.id &&
-			(node.type !== 'goto' || offered.has(node.id) || siblings.has(node.id) || suggested.has(node.id)));
-		const context = !inContext ? undefined : this.isFinal(tree, current) ? parent : current;
-		const allowed = new Set(everywhere.map(node => node.id));
-		const ranked = (await this.search.rank(tree, everywhere, text, context?.id === tree.root.id ? undefined : context))
-			.filter(candidate => allowed.has(candidate.node.id) && Number.isFinite(candidate.score))
-			.sort((a, b) => b.score - a.score || tree.depth(a.node) - tree.depth(b.node));
-		// Короткий ответ на уточнение может выбирать из уже предложенного списка,
-		// но только если E5 оценила его почти так же высоко, как лучший глобальный ответ.
-		// Новая тема с заметно лучшей оценкой и полные вопросы не перехватываются.
-		if (suggested.size > 0 && text.split(/\s+/).length <= 4) {
-			const narrowed = ranked.filter(candidate => suggested.has(candidate.node.id));
-			const best = ranked[0];
-			const suggestion = narrowed[0];
-
-			if (best && suggestion && suggestion.score >= this.policy.threshold && best.score - suggestion.score <= this.policy.ambiguityGap) {
-				return { choice: this.pick(tree, narrowed), ranked: narrowed };
+	// Navigation position is not search context. Only explicitly displayed options can be selected.
+	private async choose (tree: ContentTree, session: Session, text: string): Promise<{ choice: Choice; ranked: Candidate[]; }> {
+		const knowledge = tree.all().filter(node => node.id !== tree.root.id &&
+			(node.type === 'section' || (node.type === 'link' && Boolean(node.text?.trim()))));
+		const run = async (nodes: ContentNode[], mode?: 'options') => {
+			const allowed = new Set(nodes.map(node => node.id));
+			return (await this.search.rank(tree, nodes, text, mode))
+				.filter(candidate => allowed.has(candidate.node.id) && Number.isFinite(candidate.score))
+				.sort((a, b) => b.score - a.score || tree.depth(a.node) - tree.depth(b.node));
+		};
+		const ranked = await run(knowledge);
+		const global = this.pick(tree, ranked);
+		const offered = (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
+		const current = tree.get(session.nodeId);
+		const rootMenu = tree.visibleChildren(tree.root);
+		const isRootMenu = current?.id === tree.root.id && offered.length === rootMenu.length &&
+			rootMenu.every(node => offered.some(option => option.id === node.id));
+		// The start-page directory is not an unanswered semantic question.
+		// A completed answer never borrows its parent or siblings as context.
+		if (offered.length === 0 || isRootMenu ||
+			(global.kind === 'node' && tree.resolve(global.node).id !== current?.id)) {
+			return { choice: global, ranked };
+		}
+		const optionRanked = await run(offered, 'options');
+		const local = this.pick(tree, optionRanked, {
+			threshold: this.policy.optionThreshold ?? DEFAULT_SEARCH_POLICY.optionThreshold!,
+			ambiguityGap: this.policy.optionGap ?? DEFAULT_SEARCH_POLICY.optionGap!,
+		}, false);
+		if (global.kind === 'none') {
+			return { choice: local, ranked: local.kind === 'none' ? ranked : optionRanked };
+		}
+		// Label/document scores are separate evidence, not interchangeable probabilities.
+		// Local evidence may resolve a globally plausible option, never pull in an unrelated old topic.
+		if (local.kind === 'node') {
+			const close = ranked.filter(candidate => ranked[0].score - candidate.score < this.policy.ambiguityGap);
+			if (close.some(candidate => tree.resolve(candidate.node).id === tree.resolve(local.node).id)) {
+				return { choice: local, ranked: optionRanked };
 			}
 		}
-
-		return { choice: this.pick(tree, ranked), ranked };
+		return { choice: global, ranked };
 	}
 
-	private pick (tree: ContentTree, ranked: Candidate[]): Choice {
-		// Разные пункты могут вести в один раздел (goto) — это не неоднозначность
-		const unique: Candidate[] = [];
+	private pick (tree: ContentTree, ranked: Candidate[], policy: SearchPolicy = this.policy, collapseMenus = true): Choice {
 		const seen = new Set<number>();
-
-		for (const candidate of ranked) {
-			const target = tree.resolve(candidate.node);
-
-			if (!seen.has(target.id)) {
-				seen.add(target.id);
-				unique.push(candidate);
+		const unique = ranked.filter(candidate => {
+			const id = tree.resolve(candidate.node).id;
+			if (seen.has(id)) {
+				return false;
 			}
-		}
-
-		const [best] = unique;
-
-		if (!best || best.score < this.policy.threshold) {
+			seen.add(id);
+			return true;
+		});
+		const best = unique[0];
+		if (!best || best.score < policy.threshold) {
 			return { kind: 'none' };
 		}
-
-		const close = unique.filter(c => c.score >= this.policy.threshold && best.score - c.score < this.policy.ambiguityGap);
-
-		// Между общим вопросом и любым вложенным ответом сохраняем более высокий результат E5.
-		// Только при равных оценках предпочтителен родительский уточняющий вопрос.
-		const byTarget = new Map(close.map(candidate => [tree.resolve(candidate.node).id, candidate]));
-		const descendants = (parent: ContentNode): number[] => {
-			const seen = new Set([parent.id]);
-			const pending = [parent];
-			const result: number[] = [];
-
-			while (pending.length > 0) {
-				for (const child of tree.children(pending.pop()!)) {
-					const target = tree.resolve(child);
-
-					if (seen.has(target.id)) {
-						continue;
+		// A close runner-up below threshold is still evidence against a confident answer.
+		let close = unique.filter(candidate => best.score - candidate.score < policy.ambiguityGap);
+		if (collapseMenus) {
+			const directTargets = (node: ContentNode) => new Set(tree.visibleChildren(node)
+				.map(child => tree.resolve(child).id).filter(id => id !== node.id));
+			const isAncestor = (ancestor: ContentNode, descendant: ContentNode) => {
+				for (let parent = tree.parent(descendant); parent; parent = tree.parent(parent)) {
+					if (parent.id === ancestor.id) {
+						return true;
 					}
-
-					seen.add(target.id);
-					result.push(target.id);
-					pending.push(target);
 				}
-			}
-
-			return result;
-		};
-		const covered = new Set<number>();
-
-		for (const candidate of close) {
-			const parent = tree.resolve(candidate.node);
-
-			for (const targetId of descendants(parent)) {
-				const childCandidate = byTarget.get(targetId);
-
-				if (!childCandidate) {
+				return directTargets(ancestor).has(descendant.id);
+			};
+			const related = (a: ContentNode, b: ContentNode) => isAncestor(a, b) || isAncestor(b, a);
+			const questions = close.filter(candidate => {
+				const children = directTargets(tree.resolve(candidate.node));
+				return close.filter(other => children.has(tree.resolve(other.node).id)).length >= 2;
+			}).sort((a, b) => tree.depth(tree.resolve(a.node)) - tree.depth(tree.resolve(b.node)));
+			// Consolidate authored questions atomically before ancestor suppression.
+			// Simultaneous covered sets can otherwise delete each other and all their answers.
+			for (const question of questions) {
+				if (!close.includes(question)) {
 					continue;
 				}
-
-				covered.add(candidate.score >= childCandidate.score ? targetId : parent.id);
+				const target = tree.resolve(question.node);
+				close = close.filter(candidate => !related(target, tree.resolve(candidate.node)));
 			}
+			close.sort((a, b) => b.score - a.score || tree.depth(tree.resolve(a.node)) - tree.depth(tree.resolve(b.node)));
+			const independent: Candidate[] = [];
+			for (const candidate of close) {
+				if (!independent.some(kept => related(tree.resolve(kept.node), tree.resolve(candidate.node)))) {
+					independent.push(candidate);
+				}
+			}
+			close = independent;
 		}
 
-		const remaining = close.filter(candidate => !covered.has(tree.resolve(candidate.node).id));
-
-		if (remaining.length <= 1) {
-			return { kind: 'node', node: (remaining[0] ?? best).node };
+		if (close.length === 0) {
+			return { kind: 'none' };
 		}
-
-		return { kind: 'ambiguous', candidates: remaining.slice(0, MAX_SUGGESTIONS).map(c => c.node) };
+		if (close.length === 1) {
+			return { kind: 'node', node: close[0].node };
+		}
+		return { kind: 'ambiguous', candidates: close.slice(0, MAX_SUGGESTIONS).map(candidate => candidate.node) };
 	}
 
 	private async open (user: DialogUser, tree: ContentTree, node: ContentNode): Promise<Reply[]> {
@@ -250,7 +248,8 @@ export class DialogEngine {
 		// Конец цепочки: отдельным сообщением бот спрашивает, нужно ли что-то еще
 		const anythingElse: Reply[] = this.isFinal(tree, target) ? [{ text: tree.settings['text.anythingElse'] }] : [];
 
-		await this.sessions.set(user.id, { nodeId: target.id, choices: [] });
+		const displayed = target.type === 'link' ? [] : tree.visibleChildren(target);
+		await this.sessions.set(user.id, { nodeId: target.id, choices: displayed.map(option => option.id) });
 
 		// Ссылка: в сессии остается сама ссылка, чтобы «назад» вернул в раздел, где она лежит
 		if (target.type === 'link') {
@@ -262,7 +261,7 @@ export class DialogEngine {
 
 	// Конечный ответ — раздел без вариантов ответа или ссылка
 	private isFinal (tree: ContentTree, node: ContentNode): boolean {
-		return node.id !== tree.root.id && (node.type === 'link' || tree.visibleChildren(node).length === 0);
+		return node.id !== tree.root.id && (node.type === 'link' || tree.visibleChildren(node).every(child => tree.resolve(child).type === 'link'));
 	}
 
 	render (tree: ContentTree, node: ContentNode): Reply {
@@ -278,36 +277,31 @@ export class DialogEngine {
 	// Варианты ответа перечисляются в тексте сообщения: пользователь отвечает своими словами или номером.
 	// Вопрос («…интересует?», «…по темам:») и его варианты — один блок, без пустой строки между ними;
 	// после адреса или примечания список ссылок отделяется пустой строкой
-	private withOptions (tree: ContentTree, text: string, options: ContentNode[]): string {
+	private withOptions (tree: ContentTree, text: string, options: ContentNode[], distinguishBranches = false): string {
 		if (options.length === 0) {
 			return text;
 		}
 
 		const separator = /[?:]\s*$/.test(text) ? '\n' : '\n\n';
+		const qualify = distinguishBranches && new Set(options.map(node => node.parentId)).size > 1;
 
-		return `${text}${separator}${options.map((option, i) => `${i + 1}. ${this.optionLine(tree, option)}`).join('\n')}`;
+		return `${text}${separator}${options.map((option, i) => `${i + 1}. ${this.optionLine(tree, option, qualify)}`).join('\n')}`;
 	}
 
-	// Список, на который ссылается номер в ответе: варианты уточнения или пункты текущего раздела
-	// (после «не понял» сессия стоит в главном меню, и показаны как раз его пункты).
-	// После конечного ответа своего списка нет: номер относится к списку, из которого этот ответ выбрали
-	private shownOptions (tree: ContentTree, current: ContentNode, session: Session): ContentNode[] {
-		const suggested = (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
-
-		if (suggested.length > 0) {
-			return suggested;
-		}
-
-		const options = tree.visibleChildren(current);
-
-		return options.length === 0 && current.id !== tree.root.id
-			? tree.visibleChildren(tree.parent(current) ?? tree.root)
-			: options;
+	// Only the exact last displayed list is selectable. Never resurrect an unseen parent menu.
+	private shownOptions (tree: ContentTree, session: Session): ContentNode[] {
+		return (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
 	}
 
-	private optionLine (tree: ContentTree, node: ContentNode): string {
+	private optionLine (tree: ContentTree, node: ContentNode, qualify = false): string {
 		const target = tree.resolve(node);
-		const title = escapeHtml(node.title);
+		const parents: string[] = [];
+		if (qualify) {
+			for (let parent = tree.parent(node); parent && parent.id !== tree.root.id; parent = tree.parent(parent)) {
+				parents.unshift(parent.title);
+			}
+		}
+		const title = escapeHtml(parents.length > 0 ? `${node.title} (${parents.join(' / ')})` : node.title);
 
 		return target.type === 'link' && target.url ? `<a href="${escapeHtml(target.url)}">${title}</a>` : title;
 	}

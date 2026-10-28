@@ -9,7 +9,7 @@ export const E5_MODEL = 'Xenova/multilingual-e5-small';
 export const E5_REVISION = '761b726dd34fb83930e26aab4e9ac3899aa1fa78';
 
 export type Encoder = (texts: string[]) => Promise<number[][]>;
-type Passage = { nodeId: number; text: string; };
+type Passage = { nodeId: number; kind: 'content' | 'label'; text: string; };
 type Index = { passages: Passage[]; vectors: number[][]; };
 
 const plainText = (html: string) => html
@@ -49,14 +49,28 @@ const chunks = (text: string): string[] => {
 	return result;
 };
 
+const paragraphs = (html: string): string[] => html
+	.replace(/\r\n?/g, '\n')
+	.replace(/<br\s*\/?\s*>/gi, '\n\n')
+	.replace(/<\/?(?:p|div|li|ul|ol|h[1-6]|blockquote|tr)(?:\s[^>]*)?>/gi, '\n\n')
+	.split(/(?:\n\s*){2,}|[•●▪]|\n(?=\s*(?:[-*]|\d+[.)])\s+)/u)
+	.map(block => plainText(block).replace(/^(?:[-*]|\d+[.)])\s+/, ''))
+	.filter(Boolean);
+
 export const buildPassages = (tree: ContentTree): Passage[] => tree.all()
 	.filter(node => node.id !== tree.root.id)
 	.flatMap(node => {
 		const heading = nodePath(tree, node).slice(-350);
-		const body = plainText(tree.resolve(node).text ?? '');
+		const blocks = paragraphs(node.text ?? '');
 		// No synonyms, keywords, stems, exact-match boosts, or lexical fallback.
-		return [...new Set([heading, ...chunks(body).map(chunk => `${heading}. ${chunk}`)])]
-			.map(text => ({ nodeId: node.id, text: `passage: ${text}` }));
+		const label: Passage = { nodeId: node.id, kind: 'label', text: `passage: ${plainText(node.title)}` };
+		// Navigation-only links and goto aliases are selectable options, not knowledge answers.
+		if (node.type === 'goto' || (node.type === 'link' && blocks.length === 0)) {
+			return [label];
+		}
+		const content: Passage[] = [...new Set([heading, ...blocks.flatMap(chunks).map(chunk => `${heading}. ${chunk}`)])]
+			.map(text => ({ nodeId: node.id, kind: 'content', text: `passage: ${text}` }));
+		return [label, ...content];
 	});
 
 const similarity = (a: number[], b: number[]): number => {
@@ -106,30 +120,21 @@ export class E5Search implements DialogSearch {
 		await this.index(tree);
 	}
 
-	async rank (tree: ContentTree, nodes: ContentNode[], text: string, context?: ContentNode): Promise<Candidate[]> {
+	async rank (tree: ContentTree, nodes: ContentNode[], text: string, mode?: 'options'): Promise<Candidate[]> {
 		if (!text.trim() || nodes.length === 0) {
 			return [];
 		}
 		const index = await this.index(tree);
-		const queries = [`query: ${text}`];
-		const useContext = context && context.id !== tree.root.id && text.trim().split(/\s+/).length <= 4;
-		if (useContext) {
-			queries.push(`query: ${nodePath(tree, context)}. ${text}`);
-		}
-		const queryVectors = await this.encodeSerial(queries);
+		// The question never borrows text or a score from a previous topic.
+		const [queryVector] = await this.encodeSerial([`query: ${text}`]);
 		const allowed = new Map(nodes.map(node => [node.id, node]));
 		const scores = new Map<number, number>();
 		index.passages.forEach((passage, i) => {
 			const node = allowed.get(passage.nodeId);
-			if (!node) {
+			if (!node || passage.kind !== (mode === 'options' ? 'label' : 'content')) {
 				return;
 			}
-			let score = similarity(queryVectors[0], index.vectors[i]);
-			// Contextual question is only applicable inside the current branch.
-			// An unrelated full question remains searchable across the entire tree.
-			if (useContext && node.parentId === context.id) {
-				score = Math.max(score, similarity(queryVectors[1], index.vectors[i]));
-			}
+			const score = similarity(queryVector, index.vectors[i]);
 			scores.set(node.id, Math.max(scores.get(node.id) ?? -1, score));
 		});
 		return [...scores].map(([id, score]) => ({ node: allowed.get(id)!, score }))

@@ -51,6 +51,56 @@ describe('E5 passages', () => {
 		expect(passages.some(passage => passage.nodeId === 1 || passage.nodeId === 6)).toBe(false);
 		expect(passages.some(passage => passage.nodeId === 5)).toBe(true);
 	});
+
+	it.each([
+		'Абонемент оформляется по документу.\n\nКнигу можно продлить дистанционно.',
+		'<p>Абонемент оформляется по документу.</p><p>Книгу можно продлить дистанционно.</p>',
+		'<div>Абонемент оформляется по документу.</div><div>Книгу можно продлить дистанционно.</div>',
+		'Абонемент оформляется по документу.<br>Книгу можно продлить дистанционно.',
+		'<ul><li>Абонемент оформляется по документу.</li><li>Книгу можно продлить дистанционно.</li></ul>',
+		'• Абонемент оформляется по документу.\n• Книгу можно продлить дистанционно.',
+		'- Абонемент оформляется по документу.\n- Книгу можно продлить дистанционно.',
+	])('indexes separate facts as separate passages: %s', text => {
+		const content = new ContentTree([
+			node(1, 'root', 'Начало', null),
+			node(44, 'arbitrary-service', 'Библиотечные услуги', 1, { text }),
+		], DEFAULT_SETTINGS);
+		const passages = buildPassages(content).filter(passage => passage.kind === 'content').map(passage => passage.text);
+		expect(passages).toEqual([
+			'passage: Библиотечные услуги',
+			'passage: Библиотечные услуги. Абонемент оформляется по документу.',
+			'passage: Библиотечные услуги. Книгу можно продлить дистанционно.',
+		]);
+	});
+
+	it('splits long paragraphs with overlap without merging adjacent facts', () => {
+		const long = Array.from({ length: 160 }, (_, index) => `слово${index}`).join(' ');
+		const content = new ContentTree([
+			node(1, 'root', 'Начало', null),
+			node(44, 'long-answer', 'Руководство', 1, { text: `${long}\n\nНезависимый короткий ответ.` }),
+		], DEFAULT_SETTINGS);
+		const passages = buildPassages(content).filter(passage => passage.kind === 'content').map(passage => passage.text);
+		expect(passages.length).toBeGreaterThan(3);
+		expect(passages.at(-1)).toBe('passage: Руководство. Независимый короткий ответ.');
+		expect(passages.filter(text => text.includes('Независимый'))).toHaveLength(1);
+		const first = passages[1].split(' ');
+		const second = passages[2].split(' ');
+		expect(second).toEqual(expect.arrayContaining(first.slice(-12)));
+	});
+
+	it('keeps generic links and goto aliases label-only while substantive link answers remain searchable', () => {
+		const content = new ContentTree([
+			...nodes(),
+			node(7, 'external', 'Открыть сайт', 2, { type: 'link', url: 'https://example.test' }),
+			node(8, 'answer-link', 'Инструкция', 2, { type: 'link', text: 'Подробная инструкция по настройке', url: 'https://example.test/help' }),
+			node(9, 'alias', 'Вернуть покупку', 2, { type: 'goto', targetId: 5 }),
+		], DEFAULT_SETTINGS);
+		const passages = buildPassages(content);
+		expect(passages.filter(passage => passage.nodeId === 7).map(passage => passage.kind)).toEqual(['label']);
+		expect(passages.filter(passage => passage.nodeId === 9).map(passage => passage.kind)).toEqual(['label']);
+		expect(passages.some(passage => passage.nodeId === 8 && passage.kind === 'content')).toBe(true);
+		expect(passages.find(passage => passage.nodeId === 9)?.text).toBe('passage: Вернуть покупку');
+	});
 });
 
 describe('E5 model setup', () => {
@@ -73,16 +123,17 @@ describe('E5 index lifecycle', () => {
 		const encode = encoder();
 		const search = new E5Search(encode);
 		const first = tree();
+		const batches = Math.ceil(buildPassages(first).length / 8);
 		await Promise.all([search.prepare(first), search.prepare(first)]);
 		await search.rank(first, first.all(), 'первый вопрос');
 		await search.rank(first, first.all(), 'другой вопрос');
-		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('passage: '))).toHaveLength(1);
+		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('passage: '))).toHaveLength(batches);
 		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('query: '))).toHaveLength(2);
 
 		const changed = new ContentTree(nodes().map(item => item.id === 3 ? { ...item, text: 'Новое расписание' } : item), DEFAULT_SETTINGS);
 		await search.prepare(changed);
-		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('passage: '))).toHaveLength(2);
-		expect(encode.mock.calls.at(-1)?.[0].some(text => text.includes('Новое расписание'))).toBe(true);
+		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('passage: '))).toHaveLength(batches * 2);
+		expect(encode.mock.calls.slice(-batches).some(([texts]) => texts.some(text => text.includes('Новое расписание')))).toBe(true);
 	});
 
 	it('does not permanently cache a rejected index', async () => {
@@ -91,7 +142,7 @@ describe('E5 index lifecycle', () => {
 		const content = tree();
 		await expect(search.prepare(content)).rejects.toThrow('index unavailable');
 		await expect(search.prepare(content)).resolves.toBeUndefined();
-		expect(encode).toHaveBeenCalledTimes(2);
+		expect(encode).toHaveBeenCalledTimes(1 + Math.ceil(buildPassages(content).length / 8));
 	});
 
 	it('serializes concurrent encoder work instead of running multiple inference jobs', async () => {
@@ -122,7 +173,7 @@ describe('E5 index lifecycle', () => {
 		expect(encode).toHaveBeenCalledTimes(1);
 		release();
 		await Promise.all([first, second]);
-		expect(encode).toHaveBeenCalledTimes(2);
+		expect(encode).toHaveBeenCalledTimes(Math.ceil(buildPassages(tree()).length / 8) * 2);
 		expect(maxActive).toBe(1);
 	});
 });
@@ -137,27 +188,42 @@ describe('E5 ranking', () => {
 		expect(ranked[0].score).toBeCloseTo(1);
 	});
 
-	it('uses the contextual query only for short replies and nodes inside that branch', async () => {
+	it('isolates label evidence from knowledge content without boosting either score', async () => {
 		const encode = vi.fn(async (texts: string[]) => texts.map(text =>
-			text === 'query: расписание' ? vector(0) : vector(1)));
+			text.startsWith('query: ') || text === 'passage: Расписание' ? vector(0) : vector(1)));
 		const search = new E5Search(encode);
 		const content = tree();
-		const ranked = await search.rank(content, content.all(), 'расписание', content.getByCode('transfer'));
-		expect(encode.mock.calls.at(-1)?.[0]).toEqual(['query: расписание', 'query: Трансфер. расписание']);
-		expect(ranked.find(candidate => candidate.node.code === 'schedule')?.score).toBe(1);
-		expect(ranked.find(candidate => candidate.node.code === 'transfer')?.score).toBe(0);
-		expect(ranked.find(candidate => candidate.node.code === 'buy')?.score).toBe(0);
+		const allowed = [content.getByCode('schedule')!];
+		const global = await search.rank(content, allowed, 'расписание');
+		const options = await search.rank(content, allowed, 'расписание', 'options');
+		expect(global[0].score).toBe(0);
+		expect(options[0].score).toBe(1);
+		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('query: ')).map(([texts]) => texts)).toEqual([
+			['query: расписание'], ['query: расписание'],
+		]);
 	});
 
 	it.each([
-		['хочу купить билет в другой город', 'transfer'],
-		['расписание', 'root'],
-	])('does not add contextual text for «%s» in %s', async (question, contextCode) => {
+		['хочу купить билет в другой город', undefined],
+		['расписание', 'options'],
+		['как настроить подключение к сети', 'options'],
+	] as const)('encodes only the unchanged question «%s» in mode %s', async (question, mode) => {
 		const encode = encoder();
 		const search = new E5Search(encode);
 		const content = tree();
-		await search.rank(content, content.all(), question, content.getByCode(contextCode));
+		await search.rank(content, content.all(), question, mode);
 		expect(encode.mock.calls.at(-1)?.[0]).toEqual([`query: ${question}`]);
+	});
+
+	it('returns a navigation-only link only when it is an explicit supplied option', async () => {
+		const content = new ContentTree([
+			...nodes(),
+			node(7, 'external', 'Открыть сайт', 2, { type: 'link', url: 'https://example.test' }),
+		], DEFAULT_SETTINGS);
+		const search = new E5Search(encoder());
+		const allowed = [content.getByCode('external')!];
+		expect(await search.rank(content, allowed, 'Открыть сайт')).toEqual([]);
+		expect((await search.rank(content, allowed, 'Открыть сайт', 'options')).map(candidate => candidate.node.code)).toEqual(['external']);
 	});
 
 	it('does not run inference for empty questions or an empty candidate list', async () => {
