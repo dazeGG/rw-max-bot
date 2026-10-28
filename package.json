@@ -14,6 +14,7 @@
     "dev:admin": "pnpm --filter @rw/admin dev",
     "chat": "pnpm --filter @rw/bot chat",
     "eval:e5": "pnpm --filter @rw/bot eval:e5",
+    "benchmark:search": "pnpm --filter @rw/bot benchmark:search",
     "admin:create": "pnpm --filter @rw/api admin:create",
     "db:generate": "pnpm --filter @rw/db generate",
     "db:migrate": "pnpm --filter @rw/db migrate",
