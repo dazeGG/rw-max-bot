@@ -77,6 +77,24 @@ describe('контракт семантического поиска', () => {
 		expect((await local.process(user, { type: 'text', text: 'вопрос' })).event.nodeCode).toBe('support');
 	});
 
+	it('неуверенный лидер выше clarifyThreshold не отвечается сам, а предлагается на выбор', async () => {
+		const policy = { threshold: 0.8, ambiguityGap: 0.01, clarifyThreshold: 0.3 };
+		const local = new DialogEngine(() => tree, sessions, { rank }, {}, policy);
+		const ask = (text: string) => local.process(user, { type: 'text', text });
+
+		rank.mockResolvedValue(candidates(['support', 0.6], ['question', 0.4], ['buy', 0.35], ['tariffs', 0.32], ['promo', 0.1]));
+		expect((await ask('нужна помощь')).event).toMatchObject({ type: 'clarify', details: { suggested: ['support', 'question', 'buy'] } });
+
+		rank.mockResolvedValue(candidates(['support', 0.6], ['question', 0.1]));
+		expect((await ask('нужна помощь')).event).toMatchObject({ type: 'clarify', details: { suggested: ['support'] } });
+
+		rank.mockResolvedValue(candidates(['support', 0.2]));
+		expect((await ask('нужна помощь')).event.type).toBe('unrecognized');
+
+		rank.mockResolvedValue(candidates(['support', 0.9], ['question', 0.5]));
+		expect((await ask('нужна помощь')).event).toMatchObject({ type: 'answer', nodeCode: 'support' });
+	});
+
 	it('близкие оценки дают уточнение и сохраняют варианты', async () => {
 		rank.mockResolvedValue(candidates(['support', 0.9], ['question', 0.895]));
 		const { event, replies } = await say('помогите разобраться');

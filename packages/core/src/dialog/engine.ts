@@ -208,11 +208,15 @@ export class DialogEngine {
 			return true;
 		});
 		const best = unique[0];
-		if (!best || best.score < policy.threshold) {
+		const unsure = Boolean(best) && best.score < policy.threshold;
+		if (!best || best.score < Math.min(policy.threshold, policy.clarifyThreshold ?? policy.threshold)) {
 			return { kind: 'none' };
 		}
 		// A close runner-up below threshold is still evidence against a confident answer.
-		let close = unique.filter(candidate => best.score - candidate.score < policy.ambiguityGap);
+		// An unsure leader is never answered directly: the leaders above clarifyThreshold are offered instead.
+		let close = unsure
+			? unique.filter(candidate => candidate.score >= policy.clarifyThreshold!)
+			: unique.filter(candidate => best.score - candidate.score < policy.ambiguityGap);
 		if (collapseMenus) {
 			const directTargets = (node: ContentNode) => new Set(tree.visibleChildren(node)
 				.map(child => tree.resolve(child).id).filter(id => id !== node.id));
@@ -251,9 +255,10 @@ export class DialogEngine {
 		if (close.length === 0) {
 			return { kind: 'none' };
 		}
-		if (close.length === 1) {
+		if (close.length === 1 && !unsure) {
 			return { kind: 'node', node: close[0].node };
 		}
+		// A single unsure candidate is offered as a one-item choice, not answered
 		return { kind: 'ambiguous', candidates: close.slice(0, MAX_SUGGESTIONS).map(candidate => candidate.node) };
 	}
 

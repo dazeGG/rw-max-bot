@@ -15,6 +15,8 @@ export interface DialogSearch {
 export type SearchPolicy = {
 	threshold: number;
 	ambiguityGap: number;
+	// Ниже threshold, но не ниже этого порога бот не отвечает сам, а предлагает лучшие варианты на выбор
+	clarifyThreshold?: number;
 	optionThreshold?: number;
 	optionGap?: number;
 };
