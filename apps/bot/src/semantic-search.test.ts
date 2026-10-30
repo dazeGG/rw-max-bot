@@ -19,6 +19,7 @@ const node = (id: number, code: string, title: string, parentId: number | null, 
 	url: null,
 	targetId: null,
 	image: null,
+	imageText: null,
 	file: null,
 	fileName: null,
 	synonyms: ['SECRET_LEGACY_SYNONYM'],
@@ -74,6 +75,15 @@ describe('E5 passages', () => {
 			'passage: Библиотечные услуги. Книгу можно продлить дистанционно.',
 			'query: Библиотечные услуги',
 		]);
+	});
+
+	it('indexes every line of the picture text as a separate fact', () => {
+		const content = new ContentTree([
+			node(1, 'root', 'Начало', null),
+			node(44, 'price-table', 'Цены', 1, { image: 'prices.jpg', imageText: 'Абонемент: 300 ₽\n\nПродление:   бесплатно\n' }),
+		], DEFAULT_SETTINGS);
+		const passages = buildPassages(content).filter(passage => passage.kind === 'content').map(passage => passage.text);
+		expect(passages).toEqual(['passage: Цены', 'passage: Цены. Абонемент: 300 ₽', 'passage: Цены. Продление: бесплатно', 'query: Цены']);
 	});
 
 	it('splits long paragraphs with overlap without merging adjacent facts', () => {

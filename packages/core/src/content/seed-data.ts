@@ -12,6 +12,7 @@ export type SeedNode = {
 	url?: string;
 	target?: string;
 	image?: string;
+	imageText?: string;
 	file?: string;
 	fileName?: string;
 	hidden?: boolean;
@@ -132,6 +133,19 @@ export const SEED_TREE: SeedNode = {
 					title: 'Тарифы в вагонах ЖДЯ',
 					text: '<b>Тарифы в вагонах ЖДЯ</b>',
 					image: 'generated/tariffs.jpg',
+					imageText: 'На проезд в поездах №317, №327 / №318, №328. Цена билета со станции Нижний Бестях: плацкарт, купе\n\n' +
+						'Томмот: плацкарт 2 039 ₽, купе от 2 803 ₽\n' +
+						'Алдан: плацкарт 2 261 ₽, купе от 3 145 ₽\n' +
+						'Нерюнгри: плацкарт 2 759 ₽, купе от 3 912 ₽\n' +
+						'Тында: плацкарт 3 427 ₽, купе от 4 938 ₽\n' +
+						'Белогорск: плацкарт 4 981 ₽, купе от 7 326 ₽\n' +
+						'Благовещенск: плацкарт 5 425 ₽, купе от 8 797 ₽\n' +
+						'Хабаровск: плацкарт 6 996 ₽, купе от 10 390 ₽\n' +
+						'Уссурийск: плацкарт 8 941 ₽, купе от 13 367 ₽\n' +
+						'Владивосток: плацкарт 8 941 ₽, купе от 13 367 ₽\n' +
+						'Чита: плацкарт 6 996 ₽\n' +
+						'Улан-Удэ: плацкарт 8 454 ₽\n' +
+						'Иркутск: плацкарт 9 426 ₽',
 				},
 				{
 					code: 'tariffs-rzd',
@@ -509,6 +523,7 @@ export const flattenSeed = (tree: SeedNode = SEED_TREE): ContentNode[] => {
 			url: seed.url ?? null,
 			targetId: null,
 			image: seed.image ?? null,
+			imageText: seed.imageText ?? null,
 			file: seed.file ?? null,
 			fileName: seed.fileName ?? null,
 			// Поле сохранено для совместимости с БД; семантический поиск не использует синонимы.

@@ -61,7 +61,9 @@ export const buildPassages = (tree: ContentTree): Passage[] => tree.all()
 	.filter(node => node.id !== tree.root.id)
 	.flatMap(node => {
 		const heading = nodePath(tree, node).slice(-350);
-		const blocks = paragraphs(node.text ?? '');
+		// Text shown on the picture is plain text where every line is a separate fact (a table row)
+		const pictured = (node.imageText ?? '').split(/\n+/).map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+		const blocks = [...paragraphs(node.text ?? ''), ...pictured];
 		// No synonyms, keywords, stems, exact-match boosts, or lexical fallback.
 		const label: Passage = { nodeId: node.id, kind: 'label', text: `passage: ${plainText(node.title)}` };
 		// Navigation-only links and goto aliases are selectable options, not knowledge answers.

@@ -84,6 +84,12 @@ const NodeDetails = ({ node, tree }: { node: ContentNode; tree: Tree; }) => {
 						<dd><code>media/{node.image}</code></dd>
 					</>
 				)}
+				{node.imageText && (
+					<>
+						<dt>Текст картинки</dt>
+						<dd style={{ whiteSpace: 'pre-line' }}>{node.imageText}</dd>
+					</>
+				)}
 				{node.file && (
 					<>
 						<dt>Файл</dt>

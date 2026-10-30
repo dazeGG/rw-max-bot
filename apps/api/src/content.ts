@@ -27,6 +27,7 @@ export const loadContent = async (): Promise<ContentSnapshot> => {
 		url: row.url,
 		targetId: row.targetId,
 		image: row.image,
+		imageText: row.imageText,
 		file: row.file,
 		fileName: row.fileName,
 		synonyms: row.synonyms,

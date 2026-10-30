@@ -18,6 +18,8 @@ export type ContentNode = {
 	targetId: number | null;
 	// Пути к файлам относительно папки media
 	image: string | null;
+	// Текст, изображённый на картинке (таблица цен, расписание). Пользователю не показывается, только для поиска
+	imageText: string | null;
 	file: string | null;
 	fileName: string | null;
 	// Фразы, по которым раздел находится по свободному тексту

@@ -1,0 +1,1 @@
+ALTER TABLE "content_nodes" ADD COLUMN "image_text" text;

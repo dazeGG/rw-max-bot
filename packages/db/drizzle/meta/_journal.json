@@ -29,6 +29,13 @@
       "when": 1793007958003,
       "tag": "0003_rich_events",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793354768170,
+      "tag": "0004_image_text",
+      "breakpoints": true
     }
   ]
 }

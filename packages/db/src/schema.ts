@@ -13,6 +13,7 @@ export const contentNodes = pgTable('content_nodes', {
 	url: text('url'),
 	targetId: integer('target_id').references((): AnyPgColumn => contentNodes.id, { onDelete: 'set null' }),
 	image: text('image'),
+	imageText: text('image_text'),
 	file: text('file'),
 	fileName: text('file_name'),
 	synonyms: text('synonyms').array().notNull().default(sql`'{}'::text[]`),
