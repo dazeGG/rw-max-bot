@@ -38,6 +38,7 @@ export const rerankE5Weight = (() => {
 // Button labels are always matched by E5 and keep their own thresholds.
 // Reranker defaults come from `pnpm calibrate:policy` on real MAX and Telegram questions (2026-10-30):
 // a sure leader is answered, other leaders above 0.02 are offered as a choice, wrong answers are rare.
+// With synonyms indexed the grid prefers 0.98/0.06: equally helpful on the held-out part, fewer direct answers, so kept.
 const reranked = rerankDepth > 0;
 export const semanticPolicy: SearchPolicy = {
 	threshold: reranked ? score('RERANK_THRESHOLD', 0.9) : score('E5_THRESHOLD', DEFAULT_SEARCH_POLICY.threshold),

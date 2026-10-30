@@ -26,7 +26,7 @@ const node = (id: number, code: string, title: string, parentId: number | null, 
 	imageText: null,
 	file: null,
 	fileName: null,
-	synonyms: ['SECRET_LEGACY_SYNONYM'],
+	synonyms: [],
 	sort: id * 10,
 	isActive: true,
 	isHidden: false,
@@ -35,7 +35,7 @@ const node = (id: number, code: string, title: string, parentId: number | null, 
 const nodes = () => [
 	node(1, 'root', 'Начало', null),
 	node(2, 'transfer', 'Трансфер', 1),
-	node(3, 'schedule', 'Расписание', 2, { text: '<b>Автобус</b> &amp; поезд' }),
+	node(3, 'schedule', 'Расписание', 2, { text: '<b>Автобус</b> &amp; поезд', synonyms: ['как  доехать ', 'как доехать', ' '] }),
 	node(4, 'buy', 'Купить билет', 1),
 	node(5, 'refund', 'Возврат талона', 1, { isHidden: true }),
 	node(6, 'disabled', 'Неактивный раздел', 1, { isActive: false }),
@@ -48,13 +48,14 @@ beforeEach(() => {
 });
 
 describe('E5 passages', () => {
-	it('indexes headings and plain content, never legacy synonyms or inactive nodes', () => {
+	it('indexes headings, plain content and synonyms as metadata, never inactive nodes', () => {
 		const passages = buildPassages(tree());
 		expect(passages.every(passage => passage.text.startsWith('passage: ') || passage.text.startsWith('query: '))).toBe(true);
 		expect(passages.filter(passage => passage.text.startsWith('query: ')).map(passage => passage.kind)).toEqual(expect.arrayContaining(['content']));
 		expect(passages.map(passage => passage.text)).toContain('query: Расписание');
 		expect(passages.map(passage => passage.text)).toContain('passage: Трансфер — Расписание. Автобус & поезд');
-		expect(passages.some(passage => passage.text.includes('SECRET_LEGACY_SYNONYM'))).toBe(false);
+		// Synonyms are encoded as questions, once per section, not as button labels
+		expect(passages.filter(passage => passage.nodeId === 3 && passage.text === 'query: как доехать').map(passage => passage.kind)).toEqual(['content']);
 		expect(passages.some(passage => passage.nodeId === 1 || passage.nodeId === 6)).toBe(false);
 		expect(passages.some(passage => passage.nodeId === 5)).toBe(true);
 	});
@@ -252,7 +253,7 @@ describe('E5 ranking', () => {
 		expect(encode).not.toHaveBeenCalled();
 	});
 
-	it('propagates encoder failures even for exact titles and legacy synonyms, without lexical fallback', async () => {
+	it('propagates encoder failures even for exact titles and synonyms, without lexical fallback', async () => {
 		const encode = vi.fn(async (texts: string[]) => {
 			if (!texts.some(text => text.startsWith('passage: '))) {
 				throw new Error('model offline');
@@ -261,7 +262,7 @@ describe('E5 ranking', () => {
 		});
 		const search = new E5Search(encode);
 		const content = tree();
-		for (const question of ['Купить билет', 'SECRET_LEGACY_SYNONYM']) {
+		for (const question of ['Купить билет', 'как доехать']) {
 			await expect(search.rank(content, content.all(), question)).rejects.toThrow('model offline');
 		}
 	});
@@ -283,7 +284,7 @@ describe('E5 ranking', () => {
 describe('BGE reranker', () => {
 	// E5 prefers buy > schedule > transfer > refund; the reranker reads the passage text
 	const e5Order = () => vi.fn(async (texts: string[]) => texts.map(text => {
-		if (text.startsWith('query: ') && !text.startsWith('query: Купить') && !text.startsWith('query: Расписание') && !text.startsWith('query: Трансфер') && !text.startsWith('query: Возврат')) {
+		if (text.startsWith('query: ') && !text.startsWith('query: Купить') && !text.startsWith('query: Расписание') && !text.startsWith('query: Трансфер') && !text.startsWith('query: Возврат') && !text.startsWith('query: как доехать')) {
 			return vector(0);
 		}
 		const axis = text.includes('Купить') ? 0 : text.includes('Расписание') ? 1 : text.includes('Трансфер') ? 2 : 3;

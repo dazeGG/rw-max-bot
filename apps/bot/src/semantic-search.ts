@@ -68,7 +68,7 @@ export const buildPassages = (tree: ContentTree): Passage[] => tree.all()
 		// Text shown on the picture is plain text where every line is a separate fact (a table row)
 		const pictured = (node.imageText ?? '').split(/\n+/).map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
 		const blocks = [...paragraphs(node.text ?? ''), ...pictured];
-		// No synonyms, keywords, stems, exact-match boosts, or lexical fallback.
+		// No keyword rules, stems, exact-match boosts, or lexical fallback: synonyms below are encoded by the model like any text.
 		const label: Passage = { nodeId: node.id, kind: 'label', text: `passage: ${plainText(node.title)}` };
 		// Navigation-only links and goto aliases are selectable options, not knowledge answers.
 		if (node.type === 'goto' || (node.type === 'link' && blocks.length === 0)) {
@@ -79,7 +79,11 @@ export const buildPassages = (tree: ContentTree): Passage[] => tree.all()
 		// Section titles are often phrased as the question itself («Сколько стоит детский билет?»):
 		// E5's symmetric query-to-query mode compares them with the question better than as a passage.
 		const asked: Passage = { nodeId: node.id, kind: 'content', text: `query: ${plainText(node.title)}` };
-		return [label, ...content, asked];
+		// Editors' synonyms are metadata of the section: how passengers ask about it. They are encoded like the title,
+		// so a synonym helps similar questions too and an unrelated question containing its word does not match it
+		const hints: Passage[] = [...new Set(node.synonyms.map(synonym => synonym.replace(/\s+/g, ' ').trim()).filter(Boolean))]
+			.map(synonym => ({ nodeId: node.id, kind: 'content', text: `query: ${synonym}` }));
+		return [label, ...content, asked, ...hints];
 	});
 
 const similarity = (a: number[], b: number[]): number => {
