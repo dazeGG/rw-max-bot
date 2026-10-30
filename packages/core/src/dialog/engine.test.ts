@@ -220,7 +220,7 @@ describe('контракт семантического поиска', () => {
 		rank.mockImplementation(async (_tree, _nodes, _text, mode) => mode === 'options'
 			? candidates(['refund-train', 0.97], ['refund-transfer', 0.5])
 			: []);
-		const { event } = await say('на поезд');
+		const { event } = await say('железнодорожный');
 		const global = rank.mock.calls.find(call => call[3] === undefined);
 		const scoped = rank.mock.calls.find(call => call[3] === 'options');
 
@@ -246,6 +246,33 @@ describe('контракт семантического поиска', () => {
 });
 
 describe('протокольная навигация не требует модели', () => {
+	it('слова с показанной кнопки выбирают её, как номер', async () => {
+		await at('tariffs', ['tariffs-yakutia', 'tariffs-rzd']);
+		const { event } = await say('Ждя');
+
+		expect(event).toMatchObject({ type: 'option', nodeCode: 'tariffs-yakutia', details: { labelMatch: true } });
+		expect(rank).not.toHaveBeenCalled();
+	});
+
+	it('слова из нескольких кнопок дают уточнение только между ними', async () => {
+		await at('schedule-traffic', ['schedule-traffic-327', 'schedule-traffic-328', 'schedule-traffic-317', 'schedule-traffic-318']);
+		const { event } = await say('Тында');
+
+		expect(event).toMatchObject({ type: 'clarify', details: { labelMatch: true, suggested: ['schedule-traffic-327', 'schedule-traffic-328'] } });
+		expect(rank).not.toHaveBeenCalled();
+	});
+
+	it('новый вопрос с лишними словами и текст на главном меню ищутся моделью', async () => {
+		await at('tariffs', ['tariffs-yakutia', 'tariffs-rzd']);
+		await say('сколько стоит в вагонах ЖДЯ');
+		expect(rank).toHaveBeenCalled();
+
+		rank.mockClear();
+		await engine.process(user, { type: 'start' });
+		await say('Тарифы');
+		expect(rank).toHaveBeenCalled();
+	});
+
 	it('start и чистое приветствие открывают главное меню', async () => {
 		const start = await engine.process(user, { type: 'start' });
 		expect(start.event).toEqual({ type: 'start', nodeId: tree.root.id, nodeCode: 'root', text: null, details: {} });

@@ -113,6 +113,23 @@ export class DialogEngine {
 			details.unmatchedOption = number;
 		}
 
+		// Слова с показанной кнопки: «Ждя» — «Тарифы в вагонах ЖДЯ», «318» — «Поезд №317/№318». Это выбор, как номер:
+		// каждое слово реплики должно быть в названии варианта, поэтому новый вопрос сюда не попадает.
+		// Главное меню — список тем, а не заданный вопрос: там текст ищется глобально
+		const labelled = number === null && !this.isRootMenu(tree, current, shown) ? this.optionsByWords(shown, rest) : [];
+
+		if (labelled.length === 1) {
+			return done('option', tree.resolve(labelled[0]), [...greetingReplies, ...await this.open(user, tree, labelled[0])], { labelMatch: true });
+		}
+
+		if (labelled.length > 1 && labelled.length <= MAX_SUGGESTIONS) {
+			await this.sessions.set(user.id, { nodeId: current.id, choices: labelled.map(node => node.id) });
+			return done('clarify', current, [...greetingReplies, { text: this.withOptions(tree, tree.settings['text.didYouMean'], labelled, true) }], {
+				labelMatch: true,
+				suggested: labelled.map(node => node.code),
+			});
+		}
+
 		const { choice, ranked }: { choice: Choice; ranked: Candidate[]; } = number === null
 			? await this.choose(tree, session, query)
 			: { choice: { kind: 'none' }, ranked: [] };
@@ -155,12 +172,9 @@ export class DialogEngine {
 		const global = this.pick(tree, ranked);
 		const offered = (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
 		const current = tree.get(session.nodeId);
-		const rootMenu = tree.visibleChildren(tree.root);
-		const isRootMenu = current?.id === tree.root.id && offered.length === rootMenu.length &&
-			rootMenu.every(node => offered.some(option => option.id === node.id));
 		// The start-page directory is not an unanswered semantic question.
 		// A completed answer never borrows its parent or siblings as context.
-		if (offered.length === 0 || isRootMenu ||
+		if (offered.length === 0 || this.isRootMenu(tree, current, offered) ||
 			(global.kind === 'node' && tree.resolve(global.node).id !== current?.id)) {
 			return { choice: global, ranked };
 		}
@@ -289,6 +303,23 @@ export class DialogEngine {
 	}
 
 	// Only the exact last displayed list is selectable. Never resurrect an unseen parent menu.
+	private isRootMenu (tree: ContentTree, current: ContentNode | undefined, offered: ContentNode[]): boolean {
+		const rootMenu = tree.visibleChildren(tree.root);
+		return current?.id === tree.root.id && offered.length === rootMenu.length &&
+			rootMenu.every(node => offered.some(option => option.id === node.id));
+	}
+
+	private optionsByWords (shown: ContentNode[], normalized: string): ContentNode[] {
+		const words = normalized.split(' ').filter(Boolean);
+		if (words.length === 0) {
+			return [];
+		}
+		return shown.filter(option => {
+			const title = new Set(normalize(option.title).split(' '));
+			return words.every(word => title.has(word));
+		});
+	}
+
 	private shownOptions (tree: ContentTree, session: Session): ContentNode[] {
 		return (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
 	}

@@ -55,6 +55,8 @@ export type DialogEventDetails = {
 	// Номер варианта: option — выбран, unmatchedOption — в показанном списке такого номера не было
 	option?: number;
 	unmatchedOption?: number;
+	// Вариант выбран словами с кнопки, а не номером
+	labelMatch?: boolean;
 	// Лучшие кандидаты поиска по тексту с баллами и варианты, предложенные в «Уточните, пожалуйста…»
 	candidates?: Array<{ code: string; score: number; }>;
 	suggested?: string[];
