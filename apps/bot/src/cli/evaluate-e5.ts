@@ -9,6 +9,8 @@ import { repoPath } from '@rw/runtime';
 
 import { classify, createEvaluationTrees, examples } from '../evaluation/fixtures';
 import type { Example, Outcome, Step } from '../evaluation/fixtures';
+import { realMaxExamples } from '../evaluation/real-max';
+import { realTgExamples } from '../evaluation/real-tg';
 import { semanticPolicy } from '../semantic-config';
 import { createE5Search, E5_MODEL, E5_REVISION } from '../semantic-search';
 
@@ -32,7 +34,8 @@ const main = async () => {
 	const search = await createE5Search();
 	await Promise.all(Object.values(trees).map(tree => search.prepare(tree)));
 	const results: EvaluationRow[] = [];
-	for (const example of examples) {
+	const real = process.argv.includes('--real');
+	for (const example of real ? [...realMaxExamples, ...realTgExamples] : examples) {
 		const tree = trees[example.domain];
 		const engine = new DialogEngine(() => tree, new MemorySessionStore(), search, {}, semanticPolicy);
 		await engine.process({ id: 1 }, { type: 'start' });
@@ -47,7 +50,7 @@ const main = async () => {
 	const passed = results.filter(row => row.pass).length;
 	const outcomes = Object.fromEntries([...new Set(results.map(row => row.outcome))].map(outcome => [outcome, results.filter(row => row.outcome === outcome).length]));
 	const report = { createdAt: new Date().toISOString(), runtimeFingerprint, model: E5_MODEL, revision: E5_REVISION, policy: semanticPolicy, passed, total: results.length, outcomes, results };
-	const filename = process.argv.includes('--baseline') ? '.cache/e5-before-context.json' : '.cache/e5-evaluation.json';
+	const filename = real ? '.cache/e5-real.json' : process.argv.includes('--baseline') ? '.cache/e5-before-context.json' : '.cache/e5-evaluation.json';
 	await fs.mkdir(repoPath('.cache'), { recursive: true });
 	await fs.writeFile(repoPath(filename), JSON.stringify(report, null, 2));
 	console.log(`\n${passed}/${results.length} strict outcomes. ${JSON.stringify(outcomes)}\nReport: ${filename}`);
