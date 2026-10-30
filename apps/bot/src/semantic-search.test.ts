@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ContentTree, DEFAULT_SETTINGS } from '@rw/core';
 import type { ContentNode } from '@rw/core';
@@ -122,6 +126,28 @@ describe('E5 passages', () => {
 });
 
 describe('E5 model setup', () => {
+	let cache: string;
+	beforeEach(() => {
+		cache = fs.mkdtempSync(path.join(os.tmpdir(), 'e5-cache-'));
+		vi.stubEnv('E5_CACHE_DIR', cache);
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		fs.rmSync(cache, { recursive: true, force: true });
+	});
+
+	it('loads a complete cached download from its folder without asking huggingface.co', async () => {
+		const folder = path.join(cache, E5_MODEL, E5_REVISION);
+		fs.mkdirSync(path.join(folder, 'onnx'), { recursive: true });
+		for (const file of ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'onnx/model_quantized.onnx']) {
+			fs.writeFileSync(path.join(folder, file), '');
+		}
+		pipelineMock.mockResolvedValue(vi.fn());
+		await createE5Search();
+
+		expect(pipelineMock).toHaveBeenCalledWith('feature-extraction', folder, expect.not.objectContaining({ revision: expect.anything() }));
+	});
+
 	it('uses the pinned CPU model and normalized mean-pooled embeddings without downloading in tests', async () => {
 		const extractor = vi.fn(async (texts: string[]) => ({ tolist: () => texts.map(() => vector()) }));
 		pipelineMock.mockResolvedValue(extractor);
@@ -349,6 +375,7 @@ describe('BGE reranker', () => {
 	});
 
 	it('loads the pinned reranker only when a depth is configured', async () => {
+		vi.stubEnv('E5_CACHE_DIR', path.join(os.tmpdir(), 'e5-cache-missing'));
 		pipelineMock.mockResolvedValue(vi.fn(async (texts: string[]) => ({ tolist: () => texts.map(() => vector()) })));
 		await createE5Search(0);
 		expect(rerankerModelMock).not.toHaveBeenCalled();
@@ -361,5 +388,6 @@ describe('BGE reranker', () => {
 		const ranked = await search.rank(content, content.all().filter(item => item.id !== 1), 'вопрос');
 		expect(ranked.length).toBeGreaterThan(0);
 		expect(tokenizer).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ truncation: true, max_length: 512 }));
+		vi.unstubAllEnvs();
 	});
 });

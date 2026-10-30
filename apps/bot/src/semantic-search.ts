@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { AutoModelForSequenceClassification, AutoTokenizer, pipeline } from '@huggingface/transformers';
@@ -196,12 +197,21 @@ export class E5Search implements DialogSearch {
 }
 
 const cacheDir = () => path.resolve(process.env.E5_CACHE_DIR ?? repoPath('.cache/e5'));
+
+// transformers 4.3 checks the tokenizer on huggingface.co even when it is cached, so a restart without
+// network would fail. A complete download is loaded from its folder; otherwise the pinned revision is fetched
+const modelSource = (model: string, revision: string): [string, { revision?: string; cache_dir?: string; }] => {
+	const folder = path.join(cacheDir(), model, revision);
+	const complete = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'onnx/model_quantized.onnx']
+		.every(file => fs.existsSync(path.join(folder, file)));
+	return complete ? [folder, {}] : [model, { revision, cache_dir: cacheDir() }];
+};
 const sessionOptions = { intraOpNumThreads: 2, interOpNumThreads: 1 };
 
 export const createReranker = async (): Promise<Reranker> => {
-	const options = { revision: RERANKER_REVISION, cache_dir: cacheDir() };
-	const tokenizer = await AutoTokenizer.from_pretrained(RERANKER_MODEL, options);
-	const model = await AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
+	const [source, options] = modelSource(RERANKER_MODEL, RERANKER_REVISION);
+	const tokenizer = await AutoTokenizer.from_pretrained(source, options);
+	const model = await AutoModelForSequenceClassification.from_pretrained(source, {
 		...options, device: 'cpu', dtype: 'q8', session_options: sessionOptions,
 	});
 	return async (query, passages) => {
@@ -217,11 +227,11 @@ export const createReranker = async (): Promise<Reranker> => {
 };
 
 export const createE5Search = async (rerankDepth = 0, e5Weight = 0): Promise<E5Search> => {
-	const extractor = await pipeline('feature-extraction', E5_MODEL, {
-		revision: E5_REVISION,
+	const [source, options] = modelSource(E5_MODEL, E5_REVISION);
+	const extractor = await pipeline('feature-extraction', source, {
+		...options,
 		device: 'cpu',
 		dtype: 'q8',
-		cache_dir: cacheDir(),
 		session_options: sessionOptions,
 	});
 	const encode: Encoder = async texts => {
