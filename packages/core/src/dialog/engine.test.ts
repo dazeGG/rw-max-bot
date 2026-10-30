@@ -104,6 +104,27 @@ describe('контракт семантического поиска', () => {
 		expect((await sessions.get(user.id)).choices).toEqual([node('support').id, node('question').id]);
 	});
 
+	it('последний пункт уточнения ведёт в раздел из настройки search.handoff', async () => {
+		rank.mockResolvedValue(candidates(['buy', 0.9], ['tariffs', 0.895]));
+		const { event, replies } = await say('сколько стоит');
+
+		expect(event.details).toMatchObject({ suggested: ['buy', 'tariffs'], handoff: 'support' });
+		expect(options(replies[0].text!)).toEqual(['Купить билет', 'Тарифы', SEED_SETTINGS['text.handoff']]);
+		expect((await say('3')).event).toMatchObject({ type: 'option', nodeCode: 'support' });
+	});
+
+	it('пункта поддержки нет, если она уже среди вариантов или настройка пустая', async () => {
+		rank.mockResolvedValue(candidates(['support', 0.9], ['question', 0.895]));
+		expect((await say('помогите')).event.details.handoff).toBeUndefined();
+
+		const quiet = new ContentTree(flattenSeed(), { ...SEED_SETTINGS, 'search.handoff': '' });
+		const local = new DialogEngine(() => quiet, sessions, { rank });
+		rank.mockResolvedValue(candidates(['buy', 0.9], ['tariffs', 0.895]));
+		const { event, replies } = await local.process(user, { type: 'text', text: 'сколько стоит' });
+		expect(event.details.handoff).toBeUndefined();
+		expect(options(replies[0].text!)).toEqual(['Купить билет', 'Тарифы']);
+	});
+
 	it('близкий конкурент ниже порога не превращает победителя в уверенный ответ', async () => {
 		rank.mockResolvedValue(candidates(['support', DEFAULT_SEARCH_POLICY.threshold + 0.005], ['question', DEFAULT_SEARCH_POLICY.threshold - 0.001]));
 

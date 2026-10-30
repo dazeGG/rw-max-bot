@@ -60,6 +60,8 @@ export type DialogEventDetails = {
 	// Лучшие кандидаты поиска по тексту с баллами и варианты, предложенные в «Уточните, пожалуйста…»
 	candidates?: Array<{ code: string; score: number; }>;
 	suggested?: string[];
+	// Раздел из последнего пункта уточнения «Нет подходящего варианта» (настройка search.handoff)
+	handoff?: string;
 };
 
 export type DialogEvent = {

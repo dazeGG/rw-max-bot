@@ -140,12 +140,18 @@ export class DialogEngine {
 		case 'node':
 			return done('answer', tree.resolve(choice.node), [...greetingReplies, ...await this.open(user, tree, choice.node)], { candidates });
 
-		case 'ambiguous':
-			await this.sessions.set(user.id, { nodeId: current.id, choices: choice.candidates.map(node => node.id) });
-			return done('clarify', current, [...greetingReplies, { text: this.withOptions(tree, tree.settings['text.didYouMean'], choice.candidates, true) }], {
+		case 'ambiguous': {
+			// Search can miss the right section entirely: the last option always leads to people
+			const handoff = this.handoff(tree, choice.candidates);
+			const text = this.withOptions(tree, tree.settings['text.didYouMean'], choice.candidates, true) +
+				(handoff ? `\n${choice.candidates.length + 1}. ${tree.settings['text.handoff']}` : '');
+			await this.sessions.set(user.id, { nodeId: current.id, choices: [...choice.candidates, ...handoff ? [handoff] : []].map(node => node.id) });
+			return done('clarify', current, [...greetingReplies, { text }], {
 				candidates,
 				suggested: choice.candidates.map(node => node.code),
+				...handoff ? { handoff: handoff.code } : {},
 			});
+		}
 
 		case 'none':
 			await this.events.onUnrecognized?.({ userId: user.id, text, nodeId: current.id });
@@ -305,6 +311,13 @@ export class DialogEngine {
 		const qualify = distinguishBranches && new Set(options.map(node => node.parentId)).size > 1;
 
 		return `${text}${separator}${options.map((option, i) => `${i + 1}. ${this.optionLine(tree, option, qualify)}`).join('\n')}`;
+	}
+
+	// Section named by the search.handoff setting, unless it is missing, disabled or already offered
+	private handoff (tree: ContentTree, offered: ContentNode[]): ContentNode | undefined {
+		const code = tree.settings['search.handoff']?.trim();
+		const node = code ? tree.getByCode(code) : undefined;
+		return node && node.id !== tree.root.id && !offered.some(option => tree.resolve(option).id === tree.resolve(node).id) ? node : undefined;
 	}
 
 	// Only the exact last displayed list is selectable. Never resurrect an unseen parent menu.

@@ -36,7 +36,9 @@ export type SettingKey =
 	| 'text.greeting'
 	| 'text.anythingElse'
 	| 'text.askMore'
-	| 'text.goodbye';
+	| 'text.goodbye'
+	| 'text.handoff'
+	| 'search.handoff';
 
 export type Settings = Record<SettingKey, string>;
 
@@ -47,6 +49,9 @@ export const DEFAULT_SETTINGS: Settings = {
 	'text.anythingElse': 'Могу ли я ещё Вам чем-то помочь?',
 	'text.askMore': 'Задайте вопрос своими словами.\n\nЯ могу подсказать по темам:',
 	'text.goodbye': 'Спасибо за обращение! Если появятся вопросы, пишите.',
+	// Последний пункт каждого уточнения поиска и код раздела, куда он ведёт; пустой код — пункта нет
+	'text.handoff': 'Нет подходящего варианта — служба поддержки',
+	'search.handoff': 'support',
 };
 
 export const ROOT_CODE = 'root';

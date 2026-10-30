@@ -36,9 +36,19 @@ class MemoSearch implements DialogSearch {
 type Row = { outcome: Outcome; pass: boolean; helpful: boolean; };
 export type Score = { total: number; strict: number; helpful: number; wrong: number; noAnswer: number; loss: number; outcomes: Partial<Record<Outcome, number>>; };
 
-// A clarification that lists the right section among its options still lets the passenger finish in one tap
-const isHelpful = (result: DialogResult, step: Step, row: { outcome: Outcome; pass: boolean; actual: string[]; }) =>
-	row.pass || (result.event.type === 'clarify' && row.actual.some(code => step.expected.includes(code) || step.clarification?.includes(code)));
+// A clarification that lists the right section among its options still lets the passenger finish in one tap.
+// So does its last option to people, when the question needs them or has no answer in the content
+const isHelpful = (result: DialogResult, step: Step, row: { outcome: Outcome; pass: boolean; actual: string[]; }) => {
+	if (row.pass) {
+		return true;
+	}
+	if (result.event.type !== 'clarify') {
+		return false;
+	}
+	const handoff = result.event.details.handoff;
+	return row.actual.some(code => step.expected.includes(code) || step.clarification?.includes(code)) ||
+		(handoff !== undefined && (step.expected.includes(handoff) || step.expected.includes('unrecognized')));
+};
 
 // Wrong direct answers are the worst outcome; a useful clarification costs a little more than a direct answer
 const COST: Record<Outcome, number> = {
