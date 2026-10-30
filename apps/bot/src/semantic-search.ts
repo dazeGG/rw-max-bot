@@ -121,6 +121,11 @@ export class E5Search implements DialogSearch {
 	}
 
 	async rank (tree: ContentTree, nodes: ContentNode[], text: string, mode?: 'options'): Promise<Candidate[]> {
+		return (await this.explain(tree, nodes, text, mode)).map(({ node, score }) => ({ node, score }));
+	}
+
+	// Same ranking with the best-matching passage of each node, for diagnostics.
+	async explain (tree: ContentTree, nodes: ContentNode[], text: string, mode?: 'options'): Promise<(Candidate & { passage: string; })[]> {
 		if (!text.trim() || nodes.length === 0) {
 			return [];
 		}
@@ -128,16 +133,18 @@ export class E5Search implements DialogSearch {
 		// The question never borrows text or a score from a previous topic.
 		const [queryVector] = await this.encodeSerial([`query: ${text}`]);
 		const allowed = new Map(nodes.map(node => [node.id, node]));
-		const scores = new Map<number, number>();
+		const best = new Map<number, { score: number; passage: string; }>();
 		index.passages.forEach((passage, i) => {
 			const node = allowed.get(passage.nodeId);
 			if (!node || passage.kind !== (mode === 'options' ? 'label' : 'content')) {
 				return;
 			}
 			const score = similarity(queryVector, index.vectors[i]);
-			scores.set(node.id, Math.max(scores.get(node.id) ?? -1, score));
+			if (score > (best.get(node.id)?.score ?? -1)) {
+				best.set(node.id, { score, passage: passage.text });
+			}
 		});
-		return [...scores].map(([id, score]) => ({ node: allowed.get(id)!, score }))
+		return [...best].map(([id, { score, passage }]) => ({ node: allowed.get(id)!, score, passage }))
 			.sort((a, b) => b.score - a.score || tree.depth(a.node) - tree.depth(b.node));
 	}
 }

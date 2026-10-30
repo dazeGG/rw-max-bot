@@ -9,6 +9,7 @@
     "start": "tsx src/index.ts",
     "chat": "tsx src/cli/chat.ts",
     "eval:e5": "tsx src/cli/evaluate-e5.ts",
+    "retrieval:report": "tsx src/cli/retrieval-report.ts",
     "benchmark:search": "tsx src/cli/benchmark-search.ts",
     "typecheck": "tsc --noEmit"
   },
