@@ -4,7 +4,8 @@ import { DEFAULT_SEARCH_POLICY } from '@rw/core';
 import type { SearchPolicy } from '@rw/core';
 
 const score = (key: string, fallback: number): number => {
-	const value = process.env[key] === undefined ? fallback : Number(process.env[key]);
+	const raw = process.env[key]?.trim();
+	const value = raw === undefined || raw === '' ? fallback : Number(raw);
 	if (!Number.isFinite(value) || value <= 0 || value > 1) {
 		throw new Error(`${key} must be greater than 0 and at most 1`);
 	}
@@ -12,7 +13,8 @@ const score = (key: string, fallback: number): number => {
 };
 
 const count = (key: string, fallback: number): number => {
-	const value = process.env[key] === undefined ? fallback : Number(process.env[key]);
+	const raw = process.env[key]?.trim();
+	const value = raw === undefined || raw === '' ? fallback : Number(raw);
 	if (!Number.isInteger(value) || value < 0 || value > 50) {
 		throw new Error(`${key} must be an integer from 0 to 50`);
 	}
@@ -27,6 +29,8 @@ export const rerankDepth = count('RERANK_DEPTH', 10);
 export const semanticPolicy: SearchPolicy = {
 	threshold: rerankDepth > 0 ? score('RERANK_THRESHOLD', 0.8) : score('E5_THRESHOLD', DEFAULT_SEARCH_POLICY.threshold),
 	ambiguityGap: rerankDepth > 0 ? score('RERANK_AMBIGUITY_GAP', 0.01) : score('E5_AMBIGUITY_GAP', DEFAULT_SEARCH_POLICY.ambiguityGap),
+	// Optional: between this and the threshold the leaders are offered instead of answered
+	...process.env.RERANK_CLARIFY_THRESHOLD && rerankDepth > 0 ? { clarifyThreshold: score('RERANK_CLARIFY_THRESHOLD', 0) } : {},
 	optionThreshold: score('E5_OPTION_THRESHOLD', DEFAULT_SEARCH_POLICY.optionThreshold!),
 	optionGap: score('E5_OPTION_GAP', DEFAULT_SEARCH_POLICY.optionGap!),
 };

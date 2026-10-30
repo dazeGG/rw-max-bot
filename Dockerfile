@@ -25,7 +25,8 @@ COPY apps/bot apps/bot
 COPY media media
 # REVISION (выложенный коммит) пишет deploy.sh; package.json — чтобы COPY не падал, если файла нет
 COPY package.json REVISION* ./
-RUN mkdir -p logs && chown node:node logs
+# /models — том с весами E5 и реранкера: скачиваются при первом запуске бота и переживают выкладки
+RUN mkdir -p logs /models && chown node:node logs /models
 ENV NODE_ENV=production
 USER node
 

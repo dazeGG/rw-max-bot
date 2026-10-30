@@ -66,8 +66,16 @@ services:
       BOT_CONTROL_HOST: 0.0.0.0
       BOT_CONTROL_PORT: 3002
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      E5_CACHE_DIR: /models
+      RERANK_DEPTH: ${RERANK_DEPTH:-10}
+      RERANK_THRESHOLD: ${RERANK_THRESHOLD:-}
+      RERANK_AMBIGUITY_GAP: ${RERANK_AMBIGUITY_GAP:-}
+      RERANK_CLARIFY_THRESHOLD: ${RERANK_CLARIFY_THRESHOLD:-}
+    # E5 + реранкер занимают ~1.7 ГБ; при превышении перезапускается бот, а не страдает весь сервер
+    mem_limit: 2500m
     volumes:
       - logs:/app/logs
+      - models:/models
 
   web:
     build:
@@ -91,5 +99,6 @@ services:
 volumes:
   pgdata:
   logs:
+  models:
   caddy_data:
   caddy_config:
