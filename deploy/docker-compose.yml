@@ -71,6 +71,9 @@ services:
       RERANK_THRESHOLD: ${RERANK_THRESHOLD:-}
       RERANK_AMBIGUITY_GAP: ${RERANK_AMBIGUITY_GAP:-}
       RERANK_CLARIFY_THRESHOLD: ${RERANK_CLARIFY_THRESHOLD:-}
+      RERANK_E5_WEIGHT: ${RERANK_E5_WEIGHT:-}
+      E5_OPTION_THRESHOLD: ${E5_OPTION_THRESHOLD:-}
+      E5_OPTION_GAP: ${E5_OPTION_GAP:-}
     # E5 + реранкер занимают ~1.7 ГБ; при превышении перезапускается бот, а не страдает весь сервер
     mem_limit: 2500m
     volumes:

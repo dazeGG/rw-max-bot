@@ -10,6 +10,7 @@
     "chat": "tsx src/cli/chat.ts",
     "eval:e5": "tsx src/cli/evaluate-e5.ts",
     "retrieval:report": "tsx src/cli/retrieval-report.ts",
+    "calibrate:policy": "tsx src/cli/calibrate-policy.ts",
     "benchmark:search": "tsx src/cli/benchmark-search.ts",
     "typecheck": "tsc --noEmit"
   },

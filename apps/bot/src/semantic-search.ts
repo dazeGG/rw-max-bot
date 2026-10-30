@@ -93,8 +93,14 @@ export class E5Search implements DialogSearch {
 	private readonly indexes = new WeakMap<ContentTree, Promise<Index>>();
 	private queue: Promise<unknown> = Promise.resolve();
 
-	// rerankDepth: how many E5 leaders the cross-encoder rescores in the global search; 0 disables it
-	constructor (private readonly encode: Encoder, private readonly reranker?: Reranker, private readonly rerankDepth = 0) {}
+	// rerankDepth: how many E5 leaders the cross-encoder rescores in the global search; 0 disables it.
+	// e5Weight: how much the E5 lag behind the E5 leader (×100) adds to the reranker logit
+	constructor (
+		private readonly encode: Encoder,
+		private readonly reranker?: Reranker,
+		private readonly rerankDepth = 0,
+		private readonly e5Weight = 0,
+	) {}
 
 	// One inference job at a time: both models share the same two CPU threads
 	private serial<T> (job: () => Promise<T>): Promise<T> {
@@ -177,8 +183,10 @@ export class E5Search implements DialogSearch {
 		if (logits.length !== leaders.length || logits.some(logit => !Number.isFinite(logit))) {
 			throw new Error('Invalid reranker scores');
 		}
-		// Sigmoid keeps scores in 0…1 for the thresholds; it is not a calibrated probability
-		return leaders.map((leader, i) => ({ ...leader, score: 1 / (1 + Math.exp(-logits[i])) }))
+		// The models err differently: the E5 gap to its leader (0.01 cosine ≈ one logit at weight 1) is added
+		// to the cross-encoder logit. Sigmoid keeps scores in 0…1 for the thresholds; it is not a calibrated probability
+		const lead = leaders[0].score;
+		return leaders.map((leader, i) => ({ ...leader, score: 1 / (1 + Math.exp(-(logits[i] + this.e5Weight * 100 * (leader.score - lead)))) }))
 			.sort((a, b) => b.score - a.score || tree.depth(a.node) - tree.depth(b.node));
 	}
 }
@@ -204,7 +212,7 @@ export const createReranker = async (): Promise<Reranker> => {
 	};
 };
 
-export const createE5Search = async (rerankDepth = 0): Promise<E5Search> => {
+export const createE5Search = async (rerankDepth = 0, e5Weight = 0): Promise<E5Search> => {
 	const extractor = await pipeline('feature-extraction', E5_MODEL, {
 		revision: E5_REVISION,
 		device: 'cpu',
@@ -216,5 +224,5 @@ export const createE5Search = async (rerankDepth = 0): Promise<E5Search> => {
 		const output = await extractor(texts, { pooling: 'mean', normalize: true });
 		return output.tolist() as number[][];
 	};
-	return rerankDepth > 0 ? new E5Search(encode, await createReranker(), rerankDepth) : new E5Search(encode);
+	return rerankDepth > 0 ? new E5Search(encode, await createReranker(), rerankDepth, e5Weight) : new E5Search(encode);
 };

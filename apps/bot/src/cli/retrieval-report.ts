@@ -12,7 +12,7 @@ import { repoPath } from '@rw/runtime';
 import { createEvaluationTrees } from '../evaluation/fixtures';
 import { realMaxExamples } from '../evaluation/real-max';
 import { realTgExamples } from '../evaluation/real-tg';
-import { rerankDepth } from '../semantic-config';
+import { rerankDepth, rerankE5Weight } from '../semantic-config';
 import { createE5Search } from '../semantic-search';
 
 // Same depth as the bot unless overridden; --rerank=0 shows plain E5
@@ -20,7 +20,7 @@ const depth = Number(process.argv.find(arg => arg.startsWith('--rerank='))?.spli
 
 const main = async () => {
 	const tree = createEvaluationTrees().railway;
-	const search = await createE5Search(depth);
+	const search = await createE5Search(depth, rerankE5Weight);
 	await search.prepare(tree);
 	const nodes = tree.all().filter(node => node.id !== tree.root.id);
 	// Global search sees only the question, so standalone steps with a known target are enough.

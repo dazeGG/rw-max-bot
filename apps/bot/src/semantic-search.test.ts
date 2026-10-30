@@ -304,6 +304,18 @@ describe('BGE reranker', () => {
 		expect(passages.some(passage => /^(?:passage|query): /.test(passage))).toBe(false);
 	});
 
+	it('adds the E5 lag behind its leader to the reranker logit', async () => {
+		// Equal reranker logits: only E5 separates the leaders, and only when the weight is set
+		const reranker = vi.fn(async (_query: string, passages: string[]) => passages.map(() => 0));
+		const content = tree();
+		const nodes = content.all().filter(item => item.id !== 1);
+		const plain = await new E5Search(e5Order(), reranker, 2).rank(content, nodes, 'когда автобус');
+		const fused = await new E5Search(e5Order(), reranker, 2, 1).rank(content, nodes, 'когда автобус');
+		expect(plain.map(candidate => candidate.score)).toEqual([0.5, 0.5]);
+		expect(fused[0].score).toBe(0.5);
+		expect(fused[1].score).toBeLessThan(0.5);
+	});
+
 	it('keeps E5 label matching for displayed options', async () => {
 		const reranker = vi.fn(async (_query: string, passages: string[]) => passages.map(() => 0));
 		const search = new E5Search(encoder(), reranker, 10);

@@ -15,6 +15,7 @@
     "chat": "pnpm --filter @rw/bot chat",
     "eval:e5": "pnpm --filter @rw/bot eval:e5",
     "retrieval:report": "pnpm --filter @rw/bot retrieval:report",
+    "calibrate:policy": "pnpm --filter @rw/bot calibrate:policy",
     "benchmark:search": "pnpm --filter @rw/bot benchmark:search",
     "admin:create": "pnpm --filter @rw/api admin:create",
     "db:generate": "pnpm --filter @rw/db generate",

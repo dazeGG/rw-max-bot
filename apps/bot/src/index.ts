@@ -12,7 +12,7 @@ import { createControlServer } from './control-server';
 import { acquireInstanceLease } from './instance-lease';
 import type { InstanceLease } from './instance-lease';
 import { logger } from './logger';
-import { rerankDepth, semanticPolicy } from './semantic-config';
+import { rerankDepth, rerankE5Weight, semanticPolicy } from './semantic-config';
 import { createE5Search, E5_MODEL, E5_REVISION, RERANKER_MODEL, RERANKER_REVISION } from './semantic-search';
 import { createMaxBot } from './transport/max';
 
@@ -28,11 +28,11 @@ const api = new ApiClient(apiConfig.url, apiConfig.token);
 const searchInfo = {
 	model: E5_MODEL,
 	revision: E5_REVISION,
-	...rerankDepth > 0 ? { reranker: RERANKER_MODEL, rerankerRevision: RERANKER_REVISION, rerankDepth } : {},
+	...rerankDepth > 0 ? { reranker: RERANKER_MODEL, rerankerRevision: RERANKER_REVISION, rerankDepth, rerankE5Weight } : {},
 	...semanticPolicy,
 };
 logger.info('Loading semantic search', searchInfo);
-const search = await createE5Search(rerankDepth);
+const search = await createE5Search(rerankDepth, rerankE5Weight);
 const content = new ContentCache(api, tree => search.prepare(tree));
 await content.init(config.contentRefreshSeconds);
 logger.info('Semantic search ready', { nodes: content.get().all().length });
