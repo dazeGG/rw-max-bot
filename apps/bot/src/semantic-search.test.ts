@@ -45,7 +45,9 @@ beforeEach(() => {
 describe('E5 passages', () => {
 	it('indexes headings and plain content, never legacy synonyms or inactive nodes', () => {
 		const passages = buildPassages(tree());
-		expect(passages.every(passage => passage.text.startsWith('passage: '))).toBe(true);
+		expect(passages.every(passage => passage.text.startsWith('passage: ') || passage.text.startsWith('query: '))).toBe(true);
+		expect(passages.filter(passage => passage.text.startsWith('query: ')).map(passage => passage.kind)).toEqual(expect.arrayContaining(['content']));
+		expect(passages.map(passage => passage.text)).toContain('query: Расписание');
 		expect(passages.map(passage => passage.text)).toContain('passage: Трансфер — Расписание. Автобус & поезд');
 		expect(passages.some(passage => passage.text.includes('SECRET_LEGACY_SYNONYM'))).toBe(false);
 		expect(passages.some(passage => passage.nodeId === 1 || passage.nodeId === 6)).toBe(false);
@@ -70,6 +72,7 @@ describe('E5 passages', () => {
 			'passage: Библиотечные услуги',
 			'passage: Библиотечные услуги. Абонемент оформляется по документу.',
 			'passage: Библиотечные услуги. Книгу можно продлить дистанционно.',
+			'query: Библиотечные услуги',
 		]);
 	});
 
@@ -79,7 +82,7 @@ describe('E5 passages', () => {
 			node(1, 'root', 'Начало', null),
 			node(44, 'long-answer', 'Руководство', 1, { text: `${long}\n\nНезависимый короткий ответ.` }),
 		], DEFAULT_SETTINGS);
-		const passages = buildPassages(content).filter(passage => passage.kind === 'content').map(passage => passage.text);
+		const passages = buildPassages(content).filter(passage => passage.kind === 'content' && passage.text.startsWith('passage: ')).map(passage => passage.text);
 		expect(passages.length).toBeGreaterThan(3);
 		expect(passages.at(-1)).toBe('passage: Руководство. Независимый короткий ответ.');
 		expect(passages.filter(text => text.includes('Независимый'))).toHaveLength(1);
@@ -127,12 +130,12 @@ describe('E5 index lifecycle', () => {
 		await Promise.all([search.prepare(first), search.prepare(first)]);
 		await search.rank(first, first.all(), 'первый вопрос');
 		await search.rank(first, first.all(), 'другой вопрос');
-		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('passage: '))).toHaveLength(batches);
-		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('query: '))).toHaveLength(2);
+		expect(encode.mock.calls.filter(([texts]) => texts.some(text => text.startsWith('passage: ')))).toHaveLength(batches);
+		expect(encode.mock.calls.filter(([texts]) => !texts.some(text => text.startsWith('passage: ')))).toHaveLength(2);
 
 		const changed = new ContentTree(nodes().map(item => item.id === 3 ? { ...item, text: 'Новое расписание' } : item), DEFAULT_SETTINGS);
 		await search.prepare(changed);
-		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('passage: '))).toHaveLength(batches * 2);
+		expect(encode.mock.calls.filter(([texts]) => texts.some(text => text.startsWith('passage: ')))).toHaveLength(batches * 2);
 		expect(encode.mock.calls.slice(-batches).some(([texts]) => texts.some(text => text.includes('Новое расписание')))).toBe(true);
 	});
 
@@ -190,7 +193,7 @@ describe('E5 ranking', () => {
 
 	it('isolates label evidence from knowledge content without boosting either score', async () => {
 		const encode = vi.fn(async (texts: string[]) => texts.map(text =>
-			text.startsWith('query: ') || text === 'passage: Расписание' ? vector(0) : vector(1)));
+			text === 'query: расписание' || text === 'passage: Расписание' ? vector(0) : vector(1)));
 		const search = new E5Search(encode);
 		const content = tree();
 		const allowed = [content.getByCode('schedule')!];
@@ -198,7 +201,7 @@ describe('E5 ranking', () => {
 		const options = await search.rank(content, allowed, 'расписание', 'options');
 		expect(global[0].score).toBe(0);
 		expect(options[0].score).toBe(1);
-		expect(encode.mock.calls.filter(([texts]) => texts[0].startsWith('query: ')).map(([texts]) => texts)).toEqual([
+		expect(encode.mock.calls.filter(([texts]) => !texts.some(text => text.startsWith('passage: '))).map(([texts]) => texts)).toEqual([
 			['query: расписание'], ['query: расписание'],
 		]);
 	});
@@ -237,7 +240,7 @@ describe('E5 ranking', () => {
 
 	it('propagates encoder failures even for exact titles and legacy synonyms, without lexical fallback', async () => {
 		const encode = vi.fn(async (texts: string[]) => {
-			if (texts[0].startsWith('query: ')) {
+			if (!texts.some(text => text.startsWith('passage: '))) {
 				throw new Error('model offline');
 			}
 			return texts.map(() => vector());

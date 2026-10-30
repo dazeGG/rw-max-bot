@@ -70,7 +70,10 @@ export const buildPassages = (tree: ContentTree): Passage[] => tree.all()
 		}
 		const content: Passage[] = [...new Set([heading, ...blocks.flatMap(chunks).map(chunk => `${heading}. ${chunk}`)])]
 			.map(text => ({ nodeId: node.id, kind: 'content', text: `passage: ${text}` }));
-		return [label, ...content];
+		// Section titles are often phrased as the question itself («Сколько стоит детский билет?»):
+		// E5's symmetric query-to-query mode compares them with the question better than as a passage.
+		const asked: Passage = { nodeId: node.id, kind: 'content', text: `query: ${plainText(node.title)}` };
+		return [label, ...content, asked];
 	});
 
 const similarity = (a: number[], b: number[]): number => {
