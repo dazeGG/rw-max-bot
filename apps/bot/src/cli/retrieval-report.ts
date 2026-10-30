@@ -3,44 +3,24 @@
 //
 //   pnpm retrieval:report             # summary + misses outside top 3
 //   pnpm retrieval:report --all       # every question
-//   pnpm retrieval:report --rerank=10 # experiment: BGE reranker over the first N nodes
+//   pnpm retrieval:report --rerank=0  # plain E5 without the reranker (default: RERANK_DEPTH)
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-
-import { AutoModelForSequenceClassification, AutoTokenizer } from '@huggingface/transformers';
 
 import { repoPath } from '@rw/runtime';
 
 import { createEvaluationTrees } from '../evaluation/fixtures';
 import { realMaxExamples } from '../evaluation/real-max';
 import { realTgExamples } from '../evaluation/real-tg';
+import { rerankDepth } from '../semantic-config';
 import { createE5Search } from '../semantic-search';
 
-const RERANKER = { name: 'onnx-community/bge-reranker-v2-m3-ONNX', revision: '6f5ff65298512715a1e669753bc754d2bc8f367b' };
-const rerankDepth = Number(process.argv.find(arg => arg.startsWith('--rerank='))?.split('=')[1] ?? 0);
-
-const createReranker = async () => {
-	const options = { revision: RERANKER.revision, cache_dir: path.resolve(process.env.E5_CACHE_DIR ?? repoPath('.cache/e5')) };
-	const tokenizer = await AutoTokenizer.from_pretrained(RERANKER.name, options);
-	const model = await AutoModelForSequenceClassification.from_pretrained(RERANKER.name, {
-		...options, device: 'cpu', dtype: 'q8', session_options: { intraOpNumThreads: 2, interOpNumThreads: 1 },
-	});
-	return async (query: string, passages: string[]): Promise<number[]> => {
-		const scores: number[] = [];
-		for (let i = 0; i < passages.length; i += 2) {
-			const batch = passages.slice(i, i + 2);
-			const inputs = tokenizer(batch.map(() => query), { text_pair: batch, padding: true, truncation: true, max_length: 512 });
-			scores.push(...((await model(inputs)).logits.tolist() as number[][]).map(row => row[0]));
-		}
-		return scores;
-	};
-};
+// Same depth as the bot unless overridden; --rerank=0 shows plain E5
+const depth = Number(process.argv.find(arg => arg.startsWith('--rerank='))?.split('=')[1] ?? rerankDepth);
 
 const main = async () => {
 	const tree = createEvaluationTrees().railway;
-	const search = await createE5Search();
-	const rerank = rerankDepth > 0 ? await createReranker() : null;
+	const search = await createE5Search(depth);
 	await search.prepare(tree);
 	const nodes = tree.all().filter(node => node.id !== tree.root.id);
 	// Global search sees only the question, so standalone steps with a known target are enough.
@@ -53,12 +33,7 @@ const main = async () => {
 	const timings: number[] = [];
 	for (const step of unique) {
 		const started = performance.now();
-		let ranked = await search.explain(tree, nodes, step.text);
-		if (rerank) {
-			const head = ranked.slice(0, rerankDepth);
-			const scores = await rerank(step.text, head.map(candidate => candidate.passage.replace(/^(passage|query): /, '')));
-			ranked = [...head.map((candidate, i) => ({ ...candidate, score: scores[i] })).sort((a, b) => b.score - a.score), ...ranked.slice(rerankDepth)];
-		}
+		const ranked = await search.explain(tree, nodes, step.text);
 		timings.push(performance.now() - started);
 		const rank = ranked.findIndex(candidate => step.targets.includes(candidate.node.code)) + 1;
 		rows.push({ ...step, rank, top: ranked.slice(0, 10).map(({ node, score, passage }) => ({ code: node.code, score: Number(score.toFixed(3)), passage: passage.replace(/^(passage|query): /, '') })) });

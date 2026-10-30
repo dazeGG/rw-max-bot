@@ -11,7 +11,7 @@ import { classify, createEvaluationTrees, examples } from '../evaluation/fixture
 import type { Example, Outcome, Step } from '../evaluation/fixtures';
 import { realMaxExamples } from '../evaluation/real-max';
 import { realTgExamples } from '../evaluation/real-tg';
-import { semanticPolicy } from '../semantic-config';
+import { rerankDepth, semanticPolicy } from '../semantic-config';
 import { createE5Search, E5_MODEL, E5_REVISION } from '../semantic-search';
 
 type EvaluationRow = Step & {
@@ -31,7 +31,7 @@ const main = async () => {
 	const sources = await Promise.all(['packages/core/src/dialog/engine.ts', 'apps/bot/src/semantic-search.ts'].map(file => fs.readFile(repoPath(file))));
 	const runtimeFingerprint = createHash('sha256').update(Buffer.concat(sources)).digest('hex');
 	const trees = createEvaluationTrees();
-	const search = await createE5Search();
+	const search = await createE5Search(rerankDepth);
 	await Promise.all(Object.values(trees).map(tree => search.prepare(tree)));
 	const results: EvaluationRow[] = [];
 	const real = process.argv.includes('--real');
@@ -49,7 +49,7 @@ const main = async () => {
 	}
 	const passed = results.filter(row => row.pass).length;
 	const outcomes = Object.fromEntries([...new Set(results.map(row => row.outcome))].map(outcome => [outcome, results.filter(row => row.outcome === outcome).length]));
-	const report = { createdAt: new Date().toISOString(), runtimeFingerprint, model: E5_MODEL, revision: E5_REVISION, policy: semanticPolicy, passed, total: results.length, outcomes, results };
+	const report = { createdAt: new Date().toISOString(), runtimeFingerprint, model: E5_MODEL, revision: E5_REVISION, rerankDepth, policy: semanticPolicy, passed, total: results.length, outcomes, results };
 	const filename = real ? '.cache/e5-real.json' : process.argv.includes('--baseline') ? '.cache/e5-before-context.json' : '.cache/e5-evaluation.json';
 	await fs.mkdir(repoPath('.cache'), { recursive: true });
 	await fs.writeFile(repoPath(filename), JSON.stringify(report, null, 2));

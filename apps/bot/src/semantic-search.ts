@@ -1,14 +1,18 @@
 import path from 'node:path';
 
-import { pipeline } from '@huggingface/transformers';
+import { AutoModelForSequenceClassification, AutoTokenizer, pipeline } from '@huggingface/transformers';
 
 import type { Candidate, ContentNode, ContentTree, DialogSearch } from '@rw/core';
 import { repoPath } from '@rw/runtime';
 
 export const E5_MODEL = 'Xenova/multilingual-e5-small';
 export const E5_REVISION = '761b726dd34fb83930e26aab4e9ac3899aa1fa78';
+export const RERANKER_MODEL = 'onnx-community/bge-reranker-v2-m3-ONNX';
+export const RERANKER_REVISION = '6f5ff65298512715a1e669753bc754d2bc8f367b';
 
 export type Encoder = (texts: string[]) => Promise<number[][]>;
+// Raw relevance logits of a cross-encoder for (question, passage) pairs
+export type Reranker = (query: string, passages: string[]) => Promise<number[]>;
 type Passage = { nodeId: number; kind: 'content' | 'label'; text: string; };
 type Index = { passages: Passage[]; vectors: number[][]; };
 
@@ -89,17 +93,22 @@ export class E5Search implements DialogSearch {
 	private readonly indexes = new WeakMap<ContentTree, Promise<Index>>();
 	private queue: Promise<unknown> = Promise.resolve();
 
-	constructor (private readonly encode: Encoder) {}
+	// rerankDepth: how many E5 leaders the cross-encoder rescores in the global search; 0 disables it
+	constructor (private readonly encode: Encoder, private readonly reranker?: Reranker, private readonly rerankDepth = 0) {}
 
-	private encodeSerial (texts: string[]): Promise<number[][]> {
-		const task = this.queue.then(() => this.encode(texts)).then(vectors => {
-			if (vectors.length !== texts.length || vectors.some(vector => vector.length !== 384 || vector.some(value => !Number.isFinite(value)))) {
-				throw new Error('Invalid E5 embeddings');
-			}
-			return vectors;
-		});
+	// One inference job at a time: both models share the same two CPU threads
+	private serial<T> (job: () => Promise<T>): Promise<T> {
+		const task = this.queue.then(job);
 		this.queue = task.catch(() => undefined);
 		return task;
+	}
+
+	private async encodeSerial (texts: string[]): Promise<number[][]> {
+		const vectors = await this.serial(() => this.encode(texts));
+		if (vectors.length !== texts.length || vectors.some(vector => vector.length !== 384 || vector.some(value => !Number.isFinite(value)))) {
+			throw new Error('Invalid E5 embeddings');
+		}
+		return vectors;
 	}
 
 	private index (tree: ContentTree): Promise<Index> {
@@ -149,21 +158,63 @@ export class E5Search implements DialogSearch {
 				best.set(node.id, { score, passage: passage.text });
 			}
 		});
-		return [...best].map(([id, { score, passage }]) => ({ node: allowed.get(id)!, score, passage }))
+		const ranked = [...best].map(([id, { score, passage }]) => ({ node: allowed.get(id)!, score, passage }))
+			.sort((a, b) => b.score - a.score || tree.depth(a.node) - tree.depth(b.node));
+		// Button labels keep E5 label scores; the reranker reads question + answer text
+		if (!this.reranker || this.rerankDepth <= 0 || mode === 'options') {
+			return ranked;
+		}
+		return this.rerank(tree, text, ranked.slice(0, this.rerankDepth));
+	}
+
+	// Candidates beyond the depth are dropped: E5 cosine and reranker scores are different scales.
+	private async rerank (tree: ContentTree, text: string, leaders: (Candidate & { passage: string; })[]): Promise<(Candidate & { passage: string; })[]> {
+		if (leaders.length === 0) {
+			return [];
+		}
+		const reranker = this.reranker!;
+		const logits = await this.serial(() => reranker(text, leaders.map(leader => leader.passage.replace(/^(?:passage|query): /, ''))));
+		if (logits.length !== leaders.length || logits.some(logit => !Number.isFinite(logit))) {
+			throw new Error('Invalid reranker scores');
+		}
+		// Sigmoid keeps scores in 0…1 for the thresholds; it is not a calibrated probability
+		return leaders.map((leader, i) => ({ ...leader, score: 1 / (1 + Math.exp(-logits[i])) }))
 			.sort((a, b) => b.score - a.score || tree.depth(a.node) - tree.depth(b.node));
 	}
 }
 
-export const createE5Search = async (): Promise<E5Search> => {
+const cacheDir = () => path.resolve(process.env.E5_CACHE_DIR ?? repoPath('.cache/e5'));
+const sessionOptions = { intraOpNumThreads: 2, interOpNumThreads: 1 };
+
+export const createReranker = async (): Promise<Reranker> => {
+	const options = { revision: RERANKER_REVISION, cache_dir: cacheDir() };
+	const tokenizer = await AutoTokenizer.from_pretrained(RERANKER_MODEL, options);
+	const model = await AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
+		...options, device: 'cpu', dtype: 'q8', session_options: sessionOptions,
+	});
+	return async (query, passages) => {
+		const logits: number[] = [];
+		// Pairs of two were the fastest batch on the 2-vCPU server
+		for (let start = 0; start < passages.length; start += 2) {
+			const batch = passages.slice(start, start + 2);
+			const inputs = tokenizer(batch.map(() => query), { text_pair: batch, padding: true, truncation: true, max_length: 512 });
+			logits.push(...((await model(inputs)).logits.tolist() as number[][]).map(row => row[0]));
+		}
+		return logits;
+	};
+};
+
+export const createE5Search = async (rerankDepth = 0): Promise<E5Search> => {
 	const extractor = await pipeline('feature-extraction', E5_MODEL, {
 		revision: E5_REVISION,
 		device: 'cpu',
 		dtype: 'q8',
-		cache_dir: path.resolve(process.env.E5_CACHE_DIR ?? repoPath('.cache/e5')),
-		session_options: { intraOpNumThreads: 2, interOpNumThreads: 1 },
+		cache_dir: cacheDir(),
+		session_options: sessionOptions,
 	});
-	return new E5Search(async texts => {
+	const encode: Encoder = async texts => {
 		const output = await extractor(texts, { pooling: 'mean', normalize: true });
 		return output.tolist() as number[][];
-	});
+	};
+	return rerankDepth > 0 ? new E5Search(encode, await createReranker(), rerankDepth) : new E5Search(encode);
 };

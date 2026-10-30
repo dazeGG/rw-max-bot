@@ -3,10 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ContentTree, DEFAULT_SETTINGS } from '@rw/core';
 import type { ContentNode } from '@rw/core';
 
-import { buildPassages, createE5Search, E5_MODEL, E5_REVISION, E5Search } from './semantic-search';
+import { buildPassages, createE5Search, E5_MODEL, E5_REVISION, E5Search, RERANKER_MODEL } from './semantic-search';
 
-const { pipelineMock } = vi.hoisted(() => ({ pipelineMock: vi.fn() }));
-vi.mock('@huggingface/transformers', () => ({ pipeline: pipelineMock }));
+const { pipelineMock, tokenizerMock, rerankerModelMock } = vi.hoisted(() => ({ pipelineMock: vi.fn(), tokenizerMock: vi.fn(), rerankerModelMock: vi.fn() }));
+vi.mock('@huggingface/transformers', () => ({
+	pipeline: pipelineMock,
+	AutoTokenizer: { from_pretrained: tokenizerMock },
+	AutoModelForSequenceClassification: { from_pretrained: rerankerModelMock },
+}));
 
 const vector = (axis = 0): number[] => Array.from({ length: 384 }, (_, index) => Number(index === axis));
 const node = (id: number, code: string, title: string, parentId: number | null, extra: Partial<ContentNode> = {}): ContentNode => ({
@@ -273,5 +277,76 @@ describe('E5 ranking', () => {
 	it('rejects a vector count that does not match the encoded texts', async () => {
 		const search = new E5Search(async () => []);
 		await expect(search.prepare(tree())).rejects.toThrow('Invalid E5 embeddings');
+	});
+});
+
+describe('BGE reranker', () => {
+	// E5 prefers buy > schedule > transfer > refund; the reranker reads the passage text
+	const e5Order = () => vi.fn(async (texts: string[]) => texts.map(text => {
+		if (text.startsWith('query: ') && !text.startsWith('query: Купить') && !text.startsWith('query: Расписание') && !text.startsWith('query: Трансфер') && !text.startsWith('query: Возврат')) {
+			return vector(0);
+		}
+		const axis = text.includes('Купить') ? 0 : text.includes('Расписание') ? 1 : text.includes('Трансфер') ? 2 : 3;
+		return vector(0).map((value, index) => index === axis ? 1 : index === 0 ? 0.5 - axis * 0.1 : 0);
+	}));
+
+	it('rescores only the E5 leaders, drops the rest and strips E5 prefixes', async () => {
+		const reranker = vi.fn(async (_query: string, passages: string[]) => passages.map(passage => passage.includes('Расписание') ? 3 : -1));
+		const search = new E5Search(e5Order(), reranker, 2);
+		const content = tree();
+		const ranked = await search.rank(content, content.all().filter(item => item.id !== 1), 'когда автобус');
+		expect(ranked.map(candidate => candidate.node.code)).toEqual(['schedule', 'buy']);
+		expect(ranked[0].score).toBeCloseTo(1 / (1 + Math.exp(-3)));
+		expect(reranker).toHaveBeenCalledTimes(1);
+		const [query, passages] = reranker.mock.calls[0];
+		expect(query).toBe('когда автобус');
+		expect(passages).toHaveLength(2);
+		expect(passages.some(passage => /^(?:passage|query): /.test(passage))).toBe(false);
+	});
+
+	it('keeps E5 label matching for displayed options', async () => {
+		const reranker = vi.fn(async (_query: string, passages: string[]) => passages.map(() => 0));
+		const search = new E5Search(encoder(), reranker, 10);
+		const content = tree();
+		await search.rank(content, content.all(), 'расписание', 'options');
+		expect(reranker).not.toHaveBeenCalled();
+	});
+
+	it('rejects malformed reranker scores instead of guessing', async () => {
+		const search = new E5Search(encoder(), async () => [Number.NaN], 1);
+		const content = tree();
+		await expect(search.rank(content, content.all(), 'вопрос')).rejects.toThrow('Invalid reranker scores');
+	});
+
+	it('never runs the reranker and E5 at the same time', async () => {
+		let active = 0;
+		let maxActive = 0;
+		const busy = async <T>(value: T): Promise<T> => {
+			active++;
+			maxActive = Math.max(active, maxActive);
+			await new Promise(resolve => setTimeout(resolve, 1));
+			active--;
+			return value;
+		};
+		const search = new E5Search(texts => busy(texts.map(() => vector())), (_query, passages) => busy(passages.map(() => 0)), 3);
+		const content = tree();
+		await search.prepare(content);
+		await Promise.all([search.rank(content, content.all(), 'первый'), search.rank(content, content.all(), 'второй')]);
+		expect(maxActive).toBe(1);
+	});
+
+	it('loads the pinned reranker only when a depth is configured', async () => {
+		pipelineMock.mockResolvedValue(vi.fn(async (texts: string[]) => ({ tolist: () => texts.map(() => vector()) })));
+		await createE5Search(0);
+		expect(rerankerModelMock).not.toHaveBeenCalled();
+		const tokenizer = vi.fn(() => ({}));
+		tokenizerMock.mockResolvedValue(tokenizer);
+		rerankerModelMock.mockResolvedValue(vi.fn(async () => ({ logits: { tolist: () => [[2], [-2]] } })));
+		const search = await createE5Search(5);
+		expect(rerankerModelMock).toHaveBeenCalledWith(RERANKER_MODEL, expect.objectContaining({ device: 'cpu', dtype: 'q8' }));
+		const content = tree();
+		const ranked = await search.rank(content, content.all().filter(item => item.id !== 1), 'вопрос');
+		expect(ranked.length).toBeGreaterThan(0);
+		expect(tokenizer).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ truncation: true, max_length: 512 }));
 	});
 });

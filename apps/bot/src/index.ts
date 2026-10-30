@@ -12,8 +12,8 @@ import { createControlServer } from './control-server';
 import { acquireInstanceLease } from './instance-lease';
 import type { InstanceLease } from './instance-lease';
 import { logger } from './logger';
-import { semanticPolicy } from './semantic-config';
-import { createE5Search, E5_MODEL, E5_REVISION } from './semantic-search';
+import { rerankDepth, semanticPolicy } from './semantic-config';
+import { createE5Search, E5_MODEL, E5_REVISION, RERANKER_MODEL, RERANKER_REVISION } from './semantic-search';
 import { createMaxBot } from './transport/max';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -24,11 +24,18 @@ if (!apiConfig.token) {
 
 const api = new ApiClient(apiConfig.url, apiConfig.token);
 
-logger.info('Loading E5 semantic search', { model: E5_MODEL, revision: E5_REVISION });
-const search = await createE5Search();
+// Recorded with every dialog event: which models and thresholds produced the answer
+const searchInfo = {
+	model: E5_MODEL,
+	revision: E5_REVISION,
+	...rerankDepth > 0 ? { reranker: RERANKER_MODEL, rerankerRevision: RERANKER_REVISION, rerankDepth } : {},
+	...semanticPolicy,
+};
+logger.info('Loading semantic search', searchInfo);
+const search = await createE5Search(rerankDepth);
 const content = new ContentCache(api, tree => search.prepare(tree));
 await content.init(config.contentRefreshSeconds);
-logger.info('E5 semantic search ready', { nodes: content.get().all().length, ...semanticPolicy });
+logger.info('Semantic search ready', { nodes: content.get().all().length });
 
 let lease: InstanceLease | null = null;
 const control = createControlServer(apiConfig.token, async () => {
@@ -55,7 +62,7 @@ const { bot, drain } = createMaxBot(config.botToken, engine, {
 	onEvent: event => {
 		void api.saveDialogEvent({
 			...event,
-			data: { ...event.data, search: { model: E5_MODEL, revision: E5_REVISION, ...semanticPolicy } },
+			data: { ...event.data, search: searchInfo },
 		}).catch(error =>
 			logger.error('Failed to save dialog event', { type: event.type, error: errorMessage(error) }));
 	},

@@ -14,7 +14,7 @@ import type { Reply } from '@rw/core';
 
 import { ApiClient } from '../api-client';
 import { apiConfig } from '../api-config';
-import { semanticPolicy } from '../semantic-config';
+import { rerankDepth, semanticPolicy } from '../semantic-config';
 import { createE5Search } from '../semantic-search';
 
 const bold = (text: string) => `\x1b[1m${text}\x1b[22m`;
@@ -40,7 +40,7 @@ const loadTree = async (): Promise<ContentTree> => {
 const main = async () => {
 	const tree = await loadTree();
 	console.log(dim('Загрузка E5 (первый запуск скачивает модель, следующие используют локальный кеш)…'));
-	const search = await createE5Search();
+	const search = await createE5Search(rerankDepth);
 	await search.prepare(tree);
 	const engine = new DialogEngine(() => tree, new MemorySessionStore(), search, {
 		onUnrecognized: ({ text }) => console.log(dim(`  (в журнал непонятых фраз: «${text}»)`)),
