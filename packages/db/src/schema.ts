@@ -55,17 +55,18 @@ export const sessions = pgTable('sessions', {
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Пользователи админки. Пароль — scrypt-хеш (apps/api/src/auth/password.ts)
+// Сотрудники. Пароль — scrypt-хеш (apps/api/src/auth/password.ts); null — сотрудник еще не задал его по ссылке
 export const admins = pgTable('admins', {
 	id: serial('id').primaryKey(),
 	login: varchar('login', { length: 100 }).notNull().unique(),
-	passwordHash: text('password_hash').notNull(),
-	role: varchar('role', { length: 20, enum: ['admin', 'editor'] }).notNull().default('editor'),
+	fullName: text('full_name').notNull(),
+	passwordHash: text('password_hash'),
+	role: varchar('role', { length: 20, enum: ['superadmin', 'admin', 'support'] }).notNull().default('support'),
 	isActive: boolean('is_active').notNull().default(true),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
 }, table => [
-	check('admins_role_check', sql`${table.role} in ('admin', 'editor')`),
+	check('admins_role_check', sql`${table.role} in ('superadmin', 'admin', 'support')`),
 ]);
 
 // Сессии входа в админку: в cookie лежит случайный токен, в БД — только его SHA-256
@@ -76,6 +77,26 @@ export const adminSessions = pgTable('admin_sessions', {
 	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 }, table => [
 	index('admin_sessions_admin_idx').on(table.adminId),
+]);
+
+// Одноразовые ссылки для задания пароля: при добавлении сотрудника и при сбросе. У сотрудника действует только последняя
+export const adminInvites = pgTable('admin_invites', {
+	tokenHash: varchar('token_hash', { length: 64 }).primaryKey(),
+	adminId: integer('admin_id').notNull().unique().references(() => admins.id, { onDelete: 'cascade' }),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
+// Журнал действий сотрудников. action — например staff.create; подробности в details, их состав можно расширять
+export const auditLog = pgTable('audit_log', {
+	id: serial('id').primaryKey(),
+	actorId: integer('actor_id').notNull().references(() => admins.id),
+	action: varchar('action', { length: 50 }).notNull(),
+	targetId: integer('target_id'),
+	details: jsonb('details').$type<Record<string, unknown>>().notNull().default({}),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+	index('audit_log_created_idx').on(table.createdAt),
 ]);
 
 // Фразы, которые бот не понял: по ним контент-менеджер добавляет синонимы

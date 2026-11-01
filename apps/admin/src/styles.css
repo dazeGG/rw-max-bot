@@ -43,48 +43,13 @@ button {
 	color: var(--danger);
 }
 
-.login {
+.auth-card {
 	width: 100%;
-	max-width: 320px;
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
-	padding: 24px;
-	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: 8px;
+	max-width: 360px;
 }
 
-.login h1 {
-	margin: 0 0 4px;
-	font-size: 20px;
-}
-
-.login label {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	color: var(--muted);
-}
-
-.login input {
-	padding: 8px 10px;
-	font: inherit;
-	color: var(--text);
-	border: 1px solid var(--border);
-	border-radius: 6px;
-}
-
-.login button {
-	padding: 9px;
-	color: #fff;
-	background: var(--accent);
-	border: 0;
-	border-radius: 6px;
-}
-
-.login button:disabled {
-	opacity: 0.6;
+.form-alert {
+	margin-bottom: 16px;
 }
 
 .layout {
@@ -97,7 +62,7 @@ button {
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	padding: 12px 16px;
+	padding: 0 16px;
 	background: var(--surface);
 	border-bottom: 1px solid var(--border);
 }
@@ -106,15 +71,34 @@ button {
 	font-weight: 600;
 }
 
-.spacer {
+.nav {
 	flex: 1;
+	min-width: 0;
+	border-bottom: 0;
 }
 
-.link-button {
-	padding: 0;
-	color: var(--accent);
-	background: none;
-	border: 0;
+.page {
+	flex: 1;
+	padding: 16px 24px;
+}
+
+.page.narrow {
+	width: 100%;
+	max-width: 520px;
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.page-actions {
+	margin-bottom: 12px;
+}
+
+.row-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
 }
 
 .content {
@@ -248,7 +232,8 @@ button {
 		border-bottom: 1px solid var(--border);
 	}
 
-	.panel {
+	.panel,
+	.page {
 		padding: 16px;
 	}
 }

@@ -34,17 +34,64 @@ export type BotLeaseRequest = {
 export const BOT_LEASE_TTL_SECONDS = 30;
 export const BOT_LEASE_RENEW_SECONDS = 10;
 
-export type AdminRole = 'admin' | 'editor';
+export type AdminRole = 'superadmin' | 'admin' | 'support';
 
 export type AdminUser = {
 	id: number;
 	login: string;
+	fullName: string;
 	role: AdminRole;
 };
 
 export type LoginRequest = {
 	login: string;
 	password: string;
+};
+
+export type ChangePasswordRequest = {
+	currentPassword: string;
+	newPassword: string;
+};
+
+export type InviteInfo = {
+	login: string;
+	fullName: string;
+};
+
+export type AcceptInviteRequest = {
+	password: string;
+};
+
+export type StaffMember = AdminUser & {
+	isActive: boolean;
+	hasPassword: boolean;
+	lastLoginAt: string | null;
+	inviteExpiresAt: string | null;
+};
+
+export type CreateStaffRequest = {
+	login: string;
+	fullName: string;
+	role: AdminRole;
+};
+
+export type UpdateStaffRequest = {
+	fullName?: string;
+	role?: AdminRole;
+};
+
+// Токен показывается один раз: в БД лежит только его хеш
+export type StaffInvite = {
+	token: string;
+	expiresAt: string;
+};
+
+export type AuditEntry = {
+	id: number;
+	actorName: string;
+	action: string;
+	details: Record<string, unknown>;
+	createdAt: string;
 };
 
 export type ApiError = {

@@ -1,45 +1,28 @@
-import { useState } from 'react';
-import type { FormEvent } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { Alert, Button, Card, Form, Input } from 'antd';
 
-import type { AdminUser } from '@rw/core';
+import type { LoginRequest } from '@rw/core';
 
 import { api } from './api';
+import { errorText, signedIn } from './session';
 
-export const LoginPage = ({ onLogin }: { onLogin: (user: AdminUser) => void; }) => {
-	const [login, setLogin] = useState('');
-	const [password, setPassword] = useState('');
-	const [error, setError] = useState<string | null>(null);
-	const [pending, setPending] = useState(false);
-
-	const submit = async (event: FormEvent) => {
-		event.preventDefault();
-		setPending(true);
-		setError(null);
-
-		try {
-			onLogin(await api.login({ login, password }));
-		} catch (loginError) {
-			setError(loginError instanceof Error ? loginError.message : String(loginError));
-		} finally {
-			setPending(false);
-		}
-	};
+export const LoginPage = () => {
+	const login = useMutation({ mutationFn: api.login, onSuccess: signedIn });
 
 	return (
 		<div className="center">
-			<form className="login" onSubmit={event => void submit(event)}>
-				<h1>ЖДЯ-бот</h1>
-				<label>
-					Логин
-					<input value={login} onChange={event => setLogin(event.target.value)} autoComplete="username" autoFocus required />
-				</label>
-				<label>
-					Пароль
-					<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required />
-				</label>
-				{error && <div className="error">{error}</div>}
-				<button type="submit" disabled={pending}>{pending ? 'Вход…' : 'Войти'}</button>
-			</form>
+			<Card className="auth-card" title="ЖДЯ-бот">
+				<Form<LoginRequest> layout="vertical" requiredMark={false} onFinish={values => login.mutate(values)}>
+					<Form.Item name="login" label="Логин" rules={[{ required: true, message: 'Введите логин' }]}>
+						<Input autoComplete="username" autoFocus />
+					</Form.Item>
+					<Form.Item name="password" label="Пароль" rules={[{ required: true, message: 'Введите пароль' }]}>
+						<Input.Password autoComplete="current-password" />
+					</Form.Item>
+					{login.isError && <Alert className="form-alert" type="error" title={errorText(login.error)} />}
+					<Button type="primary" htmlType="submit" block loading={login.isPending}>Войти</Button>
+				</Form>
+			</Card>
 		</div>
 	);
 };

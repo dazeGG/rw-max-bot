@@ -1,5 +1,19 @@
 // Только типы из @rw/core: код движка и начальный контент в сборку админки не попадают
-import type { AdminUser, ApiError, ContentNode, LoginRequest, Settings } from '@rw/core';
+import type {
+	AcceptInviteRequest,
+	AdminUser,
+	ApiError,
+	AuditEntry,
+	ChangePasswordRequest,
+	ContentNode,
+	CreateStaffRequest,
+	InviteInfo,
+	LoginRequest,
+	Settings,
+	StaffInvite,
+	StaffMember,
+	UpdateStaffRequest,
+} from '@rw/core';
 
 export class UnauthorizedError extends Error {}
 
@@ -28,5 +42,16 @@ export const api = {
 	me: () => request<AdminUser>('/auth/me'),
 	login: (body: LoginRequest) => request<AdminUser>('/auth/login', { method: 'POST', body }),
 	logout: () => request<void>('/auth/logout', { method: 'POST' }),
+	logoutAll: () => request<void>('/auth/logout-all', { method: 'POST' }),
+	changePassword: (body: ChangePasswordRequest) => request<void>('/auth/password', { method: 'POST', body }),
+	invite: (token: string) => request<InviteInfo>(`/invites/${encodeURIComponent(token)}`),
+	acceptInvite: (token: string, body: AcceptInviteRequest) => request<AdminUser>(`/invites/${encodeURIComponent(token)}`, { method: 'POST', body }),
 	content: () => request<ContentResponse>('/content'),
+	staff: () => request<StaffMember[]>('/staff'),
+	createStaff: (body: CreateStaffRequest) => request<StaffInvite>('/staff', { method: 'POST', body }),
+	updateStaff: (id: number, body: UpdateStaffRequest) => request<void>(`/staff/${id}`, { method: 'PATCH', body }),
+	reissueInvite: (id: number) => request<StaffInvite>(`/staff/${id}/invite`, { method: 'POST' }),
+	disableStaff: (id: number) => request<void>(`/staff/${id}/disable`, { method: 'POST' }),
+	enableStaff: (id: number) => request<void>(`/staff/${id}/enable`, { method: 'POST' }),
+	auditLog: () => request<AuditEntry[]>('/audit-log'),
 };

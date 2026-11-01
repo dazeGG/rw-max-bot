@@ -1,25 +1,28 @@
-// Создать пользователя админки или сменить ему пароль:
+// Создать первого суперадмина или сбросить пароль сотруднику, если зайти больше некому:
 //
-//   pnpm admin:create <логин> [--role admin|editor]
+//   pnpm admin:create <логин> [--role superadmin|admin|support]
 //
+// Новый сотрудник без --role становится суперадмином, у существующего без --role роль не меняется.
 // Пароль спрашивается в консоли, чтобы не оставаться в истории команд.
 
 import readline from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
-import { db, admins, pool } from '@rw/db';
+import { eq } from 'drizzle-orm';
+
+import type { AdminRole } from '@rw/core';
+import { adminInvites, adminSessions, admins, db, pool } from '@rw/db';
 
 import { hashPassword } from '../auth/password';
-
-const MIN_PASSWORD_LENGTH = 8;
+import { MIN_PASSWORD_LENGTH, STAFF_ROLES } from '../auth/permissions';
 
 const args = process.argv.slice(2);
-const login = args.find(arg => !arg.startsWith('--'))?.trim();
 const roleIndex = args.indexOf('--role');
-const role = roleIndex === -1 ? 'admin' : args[roleIndex + 1];
+const roleArg = roleIndex === -1 ? undefined : args[roleIndex + 1] as AdminRole | undefined;
+const login = args.find(arg => !arg.startsWith('--') && arg !== roleArg)?.trim();
 
-if (!login || (role !== 'admin' && role !== 'editor')) {
-	console.error('Usage: pnpm admin:create <login> [--role admin|editor]');
+if (!login || (roleIndex !== -1 && !STAFF_ROLES.includes(roleArg!))) {
+	console.error(`Usage: pnpm admin:create <login> [--role ${STAFF_ROLES.join('|')}]`);
 	process.exit(1);
 }
 
@@ -49,9 +52,14 @@ if (password.length < MIN_PASSWORD_LENGTH) {
 
 const passwordHash = await hashPassword(password);
 
-await db.insert(admins)
-	.values({ login, passwordHash, role })
-	.onConflictDoUpdate({ target: admins.login, set: { passwordHash, role, isActive: true } });
+const [saved] = await db.insert(admins)
+	.values({ login, fullName: login, passwordHash, role: roleArg ?? 'superadmin' })
+	.onConflictDoUpdate({ target: admins.login, set: { passwordHash, isActive: true, ...roleArg && { role: roleArg } } })
+	.returning();
 
-console.log(`Пользователь «${login}» (${role}) сохранен`);
+// Старый пароль мог утечь: прежние входы и ссылки больше не действуют
+await db.delete(adminSessions).where(eq(adminSessions.adminId, saved.id));
+await db.delete(adminInvites).where(eq(adminInvites.adminId, saved.id));
+
+console.log(`Сотрудник «${login}» (${saved.role}) сохранен`);
 await pool.end();
