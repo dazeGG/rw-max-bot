@@ -1,157 +1,262 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { Alert, App, Button, Form, Input, Modal, Radio, Select, Tag, Tree as AntTree } from 'antd';
+import type { TreeDataNode, TreeProps } from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
 
-import type { ContentNode, NodeType } from '@rw/core';
+import type { AdminContentNode, AdminUser, CreateNodeRequest, NodeType } from '@rw/core';
 
-import { api, UnauthorizedError } from './api';
-import type { ContentResponse } from './api';
+import { api } from './api';
+import { ancestorsOf, buildTree, dropPlace, isSamePlace, matchingIds, pathOf } from './content-tree';
+import type { Tree } from './content-tree';
+import { NodeForm } from './NodeForm';
+import { errorText, queryClient } from './session';
 
-const TYPE_LABELS: Record<NodeType, string> = {
-	section: 'раздел',
-	link: 'ссылка',
-	goto: 'переход',
+const CONTENT_KEY = ['content'];
+
+const TYPE_OPTIONS: { value: NodeType; label: string; }[] = [
+	{ value: 'section', label: 'Ответ' },
+	{ value: 'link', label: 'Ссылка на сайт' },
+	{ value: 'goto', label: 'Переход в другой раздел' },
+];
+
+type ApplyStatus = 'idle' | 'applying' | 'applied' | 'deferred';
+
+const APPLY_LABELS: Record<ApplyStatus, string> = {
+	idle: '',
+	applying: 'Бот применяет правки…',
+	applied: 'Бот применил правки',
+	deferred: 'Правка сохранена. Бот применит ее в течение 5 минут',
 };
 
-type Tree = {
-	root: ContentNode | undefined;
-	byId: Map<number, ContentNode>;
-	children: Map<number, ContentNode[]>;
-};
+// Бот перестраивает индекс поиска несколько секунд, поэтому сохранение его не ждет.
+// При правках подряд статус показывает только последний сигнал: бот в итоге применит самую свежую версию
+const useApply = () => {
+	const [status, setStatus] = useState<ApplyStatus>('idle');
+	const last = useRef(0);
 
-const buildTree = (nodes: ContentNode[]): Tree => {
-	const byId = new Map(nodes.map(node => [node.id, node]));
-	const children = new Map<number, ContentNode[]>();
+	const apply = useCallback(() => {
+		const id = ++last.current;
 
-	for (const node of nodes) {
-		if (node.parentId !== null) {
-			children.set(node.parentId, [...children.get(node.parentId) ?? [], node]);
-		}
-	}
-
-	for (const list of children.values()) {
-		list.sort((a, b) => a.sort - b.sort || a.id - b.id);
-	}
-
-	return { root: nodes.find(node => node.parentId === null), byId, children };
-};
-
-const TreeItem = ({ node, tree, selectedId, onSelect }: { node: ContentNode; tree: Tree; selectedId: number | null; onSelect: (id: number) => void; }) => {
-	const children = tree.children.get(node.id) ?? [];
-	const classes = ['tree-row', node.id === selectedId ? 'selected' : '', node.isActive ? '' : 'inactive'].join(' ');
-
-	return (
-		<li>
-			<button className={classes} onClick={() => onSelect(node.id)}>
-				<span className="tree-title">{node.title}</span>
-				{node.type !== 'section' && <span className="badge">{TYPE_LABELS[node.type]}</span>}
-				{node.isHidden && <span className="badge">скрыт</span>}
-				{!node.isActive && <span className="badge">выключен</span>}
-			</button>
-			{children.length > 0 && (
-				<ul>
-					{children.map(child => <TreeItem key={child.id} node={child} tree={tree} selectedId={selectedId} onSelect={onSelect} />)}
-				</ul>
-			)}
-		</li>
-	);
-};
-
-const NodeDetails = ({ node, tree }: { node: ContentNode; tree: Tree; }) => {
-	const target = node.targetId === null ? undefined : tree.byId.get(node.targetId);
-
-	return (
-		<div className="details">
-			<h2>{node.title}</h2>
-			<dl>
-				<dt>Код</dt>
-				<dd><code>{node.code}</code></dd>
-				<dt>Тип</dt>
-				<dd>{TYPE_LABELS[node.type]}</dd>
-				{node.url && (
-					<>
-						<dt>Ссылка</dt>
-						<dd><a href={node.url} target="_blank" rel="noreferrer">{node.url}</a></dd>
-					</>
-				)}
-				{target && (
-					<>
-						<dt>Ведет в</dt>
-						<dd>{target.title}</dd>
-					</>
-				)}
-				{node.image && (
-					<>
-						<dt>Картинка</dt>
-						<dd><code>media/{node.image}</code></dd>
-					</>
-				)}
-				{node.imageText && (
-					<>
-						<dt>Текст картинки</dt>
-						<dd style={{ whiteSpace: 'pre-line' }}>{node.imageText}</dd>
-					</>
-				)}
-				{node.file && (
-					<>
-						<dt>Файл</dt>
-						<dd><code>media/{node.file}</code> ({node.fileName ?? 'без имени'})</dd>
-					</>
-				)}
-			</dl>
-			{node.text && (
-				<>
-					<h3>Текст сообщения</h3>
-					{/* Текст — HTML из БД, который бот отправляет в MAX; показываем исходник, а не рендерим его */}
-					<pre className="message">{node.text}</pre>
-				</>
-			)}
-			<h3>Синонимы ({node.synonyms.length})</h3>
-			{node.synonyms.length > 0
-				? <div className="chips">{node.synonyms.map(synonym => <span key={synonym} className="chip">{synonym}</span>)}</div>
-				: <p className="muted">Нет: раздел находится только по названию</p>}
-		</div>
-	);
-};
-
-export const ContentPage = ({ onUnauthorized }: { onUnauthorized: () => void; }) => {
-	const [content, setContent] = useState<ContentResponse | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const [selectedId, setSelectedId] = useState<number | null>(null);
-
-	useEffect(() => {
-		api.content()
-			.then(setContent)
-			.catch((loadError: unknown) => {
-				if (loadError instanceof UnauthorizedError) {
-					onUnauthorized();
-				} else {
-					setError(loadError instanceof Error ? loadError.message : String(loadError));
+		setStatus('applying');
+		api.applyContent().then(
+			() => {
+				if (id === last.current) {
+					setStatus('applied');
 				}
-			});
-	}, [onUnauthorized]);
+			},
+			() => {
+				if (id === last.current) {
+					setStatus('deferred');
+				}
+			},
+		);
+	}, []);
 
-	const tree = useMemo(() => content && buildTree(content.nodes), [content]);
-	const selected = selectedId === null ? undefined : tree?.byId.get(selectedId);
+	return { status, apply };
+};
 
-	if (error) {
-		return <div className="center error">{error}</div>;
+const NodeLabel = ({ node, off }: { node: AdminContentNode; off: boolean; }) => (
+	<span className="tree-row">
+		<span className={off ? 'tree-title inactive' : 'tree-title'}>{node.title}</span>
+		{node.type === 'link' && <Tag>ссылка</Tag>}
+		{node.type === 'goto' && (node.targetId === null ? <Tag color="error">нет цели</Tag> : <Tag>переход</Tag>)}
+		{node.isHidden && <Tag>скрыт</Tag>}
+		{!node.isActive && <Tag>выключен</Tag>}
+	</span>
+);
+
+const toTreeData = (tree: Tree, node: AdminContentNode, visible: Set<number> | null, parentOff = false): TreeDataNode => {
+	const off = parentOff || !node.isActive;
+
+	return {
+		key: node.id,
+		title: <NodeLabel node={node} off={off} />,
+		children: (tree.children.get(node.id) ?? [])
+			.filter(child => !visible || visible.has(child.id))
+			.map(child => toTreeData(tree, child, visible, off)),
+	};
+};
+
+type AddNodeModalProps = {
+	tree: Tree;
+	parent: AdminContentNode;
+	onCreated: (node: AdminContentNode) => void;
+	onClose: () => void;
+};
+
+const AddNodeModal = ({ tree, parent, onCreated, onClose }: AddNodeModalProps) => {
+	const [form] = Form.useForm<CreateNodeRequest>();
+	const type = Form.useWatch('type', form) ?? 'section';
+
+	const create = useMutation({
+		mutationFn: (values: CreateNodeRequest) => api.createNode({ ...values, parentId: parent.id }),
+		onSuccess: onCreated,
+	});
+
+	const targets = [...tree.byId.values()]
+		.filter(item => item.parentId !== null)
+		.map(item => ({ value: item.id, label: pathOf(tree, item) }));
+
+	return (
+		<Modal
+			open
+			title={`Новый пункт в «${parent.title}»`}
+			okText="Добавить"
+			okButtonProps={{ htmlType: 'submit', form: 'add-node', loading: create.isPending }}
+			onCancel={onClose}
+		>
+			<Form id="add-node" form={form} layout="vertical" initialValues={{ type: 'section' }} onFinish={create.mutate}>
+				<Form.Item name="type" label="Что это за пункт" extra="Тип потом не меняется.">
+					<Radio.Group options={TYPE_OPTIONS} optionType="button" />
+				</Form.Item>
+				<Form.Item name="title" label="Название" rules={[{ required: true, whitespace: true, message: 'Введите название' }]}>
+					<Input autoFocus maxLength={200} />
+				</Form.Item>
+				{type === 'link' && (
+					<Form.Item name="url" label="Адрес сайта" rules={[{ required: true, whitespace: true, message: 'Введите адрес' }]}>
+						<Input placeholder="https://" maxLength={2000} />
+					</Form.Item>
+				)}
+				{type === 'goto' && (
+					<Form.Item name="targetId" label="Куда ведет" rules={[{ required: true, message: 'Выберите раздел' }]}>
+						<Select options={targets} showSearch={{ optionFilterProp: 'label' }} placeholder="Выберите раздел" />
+					</Form.Item>
+				)}
+				<p className="muted">Пункт появится выключенным: заполните его и включите, когда он будет готов.</p>
+				{create.isError && <Alert type="error" title={errorText(create.error)} />}
+			</Form>
+		</Modal>
+	);
+};
+
+export const ContentPage = ({ user }: { user: AdminUser; }) => {
+	const params = useParams();
+	const navigate = useNavigate();
+	const { message } = App.useApp();
+	const { status, apply } = useApply();
+	const [query, setQuery] = useState('');
+	const [expanded, setExpanded] = useState<React.Key[]>([]);
+	const [adding, setAdding] = useState(false);
+
+	// На фокус не перечитываем: дерево под правками сотрудника не должно меняться само
+	const content = useQuery({
+		queryKey: CONTENT_KEY,
+		queryFn: api.content,
+		refetchOnWindowFocus: false,
+	});
+
+	const tree = useMemo(() => content.data && buildTree(content.data.nodes), [content.data]);
+	const selectedId = Number(params.nodeId);
+	const selected = tree?.byId.get(selectedId);
+	const rootId = tree?.root?.id;
+
+	const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey: CONTENT_KEY }), []);
+
+	const saved = useCallback(async () => {
+		await refresh();
+		apply();
+	}, [refresh, apply]);
+
+	const move = useMutation({
+		mutationFn: ({ id, parentId, index }: { id: number; parentId: number; index: number; }) => api.moveNode(id, { parentId, index }),
+		onSuccess: saved,
+		onError: error => void message.error(errorText(error)),
+	});
+
+	// Раздел из ссылки должен быть виден, а открытое вручную — оставаться открытым
+	useEffect(() => {
+		if (tree && rootId !== undefined) {
+			const needed = [rootId, ...selected ? ancestorsOf(tree, selected.id).map(node => node.id) : []];
+			setExpanded(current => [...new Set([...current, ...needed])]);
+		}
+	}, [tree, rootId, selected]);
+
+	const visible = useMemo(() => tree && query.trim() ? matchingIds(tree, query) : null, [tree, query]);
+	const treeData = useMemo(() => tree?.root ? [toTreeData(tree, tree.root, visible)] : [], [tree, visible]);
+
+	if (content.isError) {
+		return <div className="center error">{errorText(content.error)}</div>;
 	}
 
-	if (!tree?.root) {
+	if (!tree?.root || !content.data) {
 		return <div className="center muted">Загрузка контента…</div>;
 	}
+
+	const onDrop: TreeProps['onDrop'] = info => {
+		const id = Number(info.dragNode.key);
+		const side = info.dropPosition - Number(info.node.pos.split('-').at(-1));
+		const place = dropPlace(tree, id, Number(info.node.key), info.dropToGap, side);
+
+		if (!isSamePlace(tree, id, place)) {
+			move.mutate({ id, ...place });
+		}
+	};
+
+	const allowDrop: TreeProps['allowDrop'] = ({ dropNode, dropPosition }) => {
+		const target = tree.byId.get(Number(dropNode.key));
+		return dropPosition === 0 ? target?.type === 'section' : target?.parentId !== null;
+	};
+
+	const addParent = selected?.type === 'section' ? selected : tree.byId.get(selected?.parentId ?? tree.root.id) ?? tree.root;
 
 	return (
 		<main className="content">
 			<nav className="tree">
-				<ul>
-					<TreeItem node={tree.root} tree={tree} selectedId={selectedId} onSelect={setSelectedId} />
-				</ul>
+				<div className="tree-toolbar">
+					<Input.Search allowClear placeholder="Поиск по названию и фразам" value={query} onChange={event => setQuery(event.target.value)} />
+					<Button type="primary" onClick={() => setAdding(true)}>Добавить</Button>
+				</div>
+				{status !== 'idle' && <div className={status === 'deferred' ? 'apply-status warn' : 'apply-status'} role="status">{APPLY_LABELS[status]}</div>}
+				{visible?.size === 0 && <p className="muted">Ничего не найдено</p>}
+				<AntTree
+					blockNode
+					treeData={treeData}
+					selectedKeys={selected ? [selected.id] : []}
+					expandedKeys={visible ? [...visible] : expanded}
+					draggable={visible
+						? false
+						: {
+							icon: false,
+							nodeDraggable: node => node.key !== rootId,
+						}}
+					allowDrop={allowDrop}
+					onDrop={onDrop}
+					onExpand={keys => {
+						if (!visible) {
+							setExpanded(keys);
+						}
+					}}
+					onSelect={(_, { node }) => void navigate(`/content/${node.key}`)}
+				/>
 			</nav>
 			<section className="panel">
 				{selected
-					? <NodeDetails node={selected} tree={tree} />
-					: <p className="muted">Выберите раздел слева. Редактирование появится на следующем шаге.</p>}
+					? (
+						<NodeForm
+							key={`${selected.id}:${selected.updatedAt}`}
+							node={selected}
+							tree={tree}
+							settings={content.data.settings}
+							user={user}
+							onSaved={saved}
+							onRefresh={() => void refresh()}
+						/>
+					)
+					: <p className="muted">Выберите раздел слева.</p>}
 			</section>
+			{adding && (
+				<AddNodeModal
+					tree={tree}
+					parent={addParent}
+					onClose={() => setAdding(false)}
+					onCreated={node => {
+						setAdding(false);
+						// Новый пункт выключен: для пассажиров ничего не изменилось, бота не беспокоим
+						void refresh().then(() => navigate(`/content/${node.id}`));
+					}}
+				/>
+			)}
 		</main>
 	);
 };

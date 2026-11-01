@@ -5,7 +5,8 @@
   "description": "Контент и диалоговый движок бота: без БД и сети, общий для бота, API и админки",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./render": "./src/render.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

@@ -6,13 +6,13 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import type { AcceptInviteRequest, AdminUser, ChangePasswordRequest, LoginRequest } from '@rw/core';
 import { adminInvites, adminSessions, admins, db } from '@rw/db';
 
-import { requireAdmin, requireRole } from '../auth/guards';
+import { requireAdmin } from '../auth/guards';
 import { findInvite } from '../auth/invites';
 import { hashPassword, verifyPassword } from '../auth/password';
 import { MIN_PASSWORD_LENGTH } from '../auth/permissions';
 import { createSession, deleteOtherSessions, deleteSession, hashToken, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../auth/sessions';
 import { config } from '../config';
-import { loadContent } from '../content';
+import { contentRoutes } from './content';
 import { staffRoutes } from './staff';
 
 const loginBody = {
@@ -144,10 +144,6 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 		return user;
 	});
 
-	app.get('/content', { preHandler: [requireAdmin, requireRole('superadmin', 'admin')] }, async () => {
-		const { nodes, settings } = await loadContent();
-		return { nodes, settings };
-	});
-
+	app.register(contentRoutes, { prefix: '/content' });
 	app.register(staffRoutes);
 };

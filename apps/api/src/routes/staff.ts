@@ -6,10 +6,12 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { AdminRole, AdminUser, AuditEntry, CreateStaffRequest, StaffInvite, StaffMember, UpdateStaffRequest } from '@rw/core';
 import { adminInvites, adminSessions, admins, auditLog, db } from '@rw/db';
 
+import { writeAudit } from '../audit';
+import type { Tx } from '../audit';
 import { requireAdmin, requireRole } from '../auth/guards';
 import { issueInvite } from '../auth/invites';
-import type { Tx } from '../auth/invites';
 import { canManageRole, STAFF_ROLES } from '../auth/permissions';
+import { RuleError } from '../errors';
 
 const AUDIT_LIMIT = 200;
 
@@ -39,13 +41,6 @@ const updateBody = {
 	properties: { fullName, role },
 } as const;
 
-// Нарушение правила: откатывает транзакцию, текст уходит пользователю
-class StaffError extends Error {
-	constructor (readonly statusCode: number, message: string) {
-		super(message);
-	}
-}
-
 const actorOf = (request: FastifyRequest): AdminUser => request.admin!;
 
 // Чужого уровня для админа как будто нет: он не видит и админов, и суперадминов
@@ -53,7 +48,7 @@ const getManagedTarget = async (tx: Tx, actor: AdminUser, id: number) => {
 	const [target] = await tx.select().from(admins).where(eq(admins.id, id));
 
 	if (!target || !canManageRole(actor.role, target.role)) {
-		throw new StaffError(404, 'Сотрудник не найден');
+		throw new RuleError(404, 'Сотрудник не найден');
 	}
 
 	return target;
@@ -71,31 +66,23 @@ const assertNotLastSuperadmin = async (tx: Tx, target: { role: AdminRole; isActi
 		.for('update');
 
 	if (rows.length <= 1) {
-		throw new StaffError(409, 'Нельзя оставить систему без суперадмина');
+		throw new RuleError(409, 'Нельзя оставить систему без суперадмина');
 	}
 };
 
 const assertNotSelf = (actor: AdminUser, targetId: number, message: string) => {
 	if (actor.id === targetId) {
-		throw new StaffError(409, message);
+		throw new RuleError(409, message);
 	}
 };
 
 const audit = (tx: Tx, actor: AdminUser, action: string, target: { id: number; login: string; }, details: Record<string, unknown> = {}) =>
-	tx.insert(auditLog).values({ actorId: actor.id, action, targetId: target.id, details: { login: target.login, ...details } });
+	writeAudit(tx, actor, action, target.id, { login: target.login, ...details });
 
 const endSessions = (tx: Tx, adminId: number) => tx.delete(adminSessions).where(eq(adminSessions.adminId, adminId));
 
 export const staffRoutes: FastifyPluginAsync = async app => {
 	app.addHook('preHandler', requireAdmin);
-
-	app.setErrorHandler((error, _request, reply) => {
-		if (error instanceof StaffError) {
-			return reply.code(error.statusCode).send({ error: error.message });
-		}
-
-		throw error;
-	});
 
 	const managers = requireRole('superadmin', 'admin');
 
@@ -128,7 +115,7 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 		const { login, role: newRole } = request.body;
 
 		if (!canManageRole(actor.role, newRole)) {
-			throw new StaffError(403, 'Недостаточно прав');
+			throw new RuleError(403, 'Недостаточно прав');
 		}
 
 		return db.transaction(async tx => {
@@ -138,7 +125,7 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 				.returning();
 
 			if (!created) {
-				throw new StaffError(409, 'Сотрудник с таким логином уже есть');
+				throw new RuleError(409, 'Сотрудник с таким логином уже есть');
 			}
 
 			await audit(tx, actor, 'staff.create', created, { fullName: created.fullName, role: created.role });
@@ -162,7 +149,7 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 				assertNotSelf(actor, target.id, 'Нельзя сменить роль самому себе');
 
 				if (!canManageRole(actor.role, newRole)) {
-					throw new StaffError(403, 'Недостаточно прав');
+					throw new RuleError(403, 'Недостаточно прав');
 				}
 
 				await assertNotLastSuperadmin(tx, target);
@@ -188,7 +175,7 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 			assertNotSelf(actor, target.id, 'Свой пароль можно сменить в профиле');
 
 			if (!target.isActive) {
-				throw new StaffError(409, 'Сначала включите сотрудника');
+				throw new RuleError(409, 'Сначала включите сотрудника');
 			}
 
 			await tx.update(admins).set({ passwordHash: null }).where(eq(admins.id, target.id));

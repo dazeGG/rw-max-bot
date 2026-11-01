@@ -41,7 +41,7 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 			<Routes>
 				{manager && (
 					<>
-						<Route path="/content" element={<ContentPage onUnauthorized={signedOut} />} />
+						<Route path="/content/:nodeId?" element={<ContentPage user={user} />} />
 						<Route path="/staff" element={<StaffPage user={user} />} />
 					</>
 				)}

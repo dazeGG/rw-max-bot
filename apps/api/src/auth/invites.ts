@@ -3,11 +3,10 @@ import { and, eq, gt, sql } from 'drizzle-orm';
 import type { InviteInfo, StaffInvite } from '@rw/core';
 import { adminInvites, admins, db } from '@rw/db';
 
+import type { Tx } from '../audit';
 import { generateToken, hashToken } from './sessions';
 
 const INVITE_TTL_MS = 48 * 60 * 60 * 1000;
-
-export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // Новая ссылка заменяет прежнюю. В БД лежит только хеш: сама ссылка показывается один раз тому, кто ее выдал
 export const issueInvite = async (tx: Tx, adminId: number): Promise<StaffInvite> => {

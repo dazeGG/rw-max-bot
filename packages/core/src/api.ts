@@ -1,6 +1,6 @@
 // Контракты HTTP API: общие для API, бота и админки
 
-import type { ContentNode, Settings } from './content/types';
+import type { ContentNode, NodeType, Settings } from './content/types';
 
 // Контент для бота. version меняется при любой правке, бот передает ее в If-None-Match
 export type ContentSnapshot = {
@@ -33,6 +33,47 @@ export type BotLeaseRequest = {
 // Бот продлевает аренду втрое чаще, чем она истекает: одна потерянная попытка не отдает ее другому экземпляру
 export const BOT_LEASE_TTL_SECONDS = 30;
 export const BOT_LEASE_RENEW_SECONDS = 10;
+
+export type AdminContentNode = ContentNode & {
+	updatedAt: string;
+	updatedBy: string | null;
+};
+
+export type ContentResponse = {
+	nodes: AdminContentNode[];
+	settings: Settings;
+};
+
+export type CreateNodeRequest = {
+	parentId: number;
+	type: NodeType;
+	title: string;
+	url?: string;
+	targetId?: number;
+};
+
+// updatedAt — версия раздела, которую правил сотрудник. Отсутствующие поля не меняются
+export type UpdateNodeRequest = {
+	updatedAt: string;
+	title?: string;
+	text?: string | null;
+	url?: string | null;
+	targetId?: number | null;
+	synonyms?: string[];
+	imageText?: string | null;
+	isActive?: boolean;
+	isHidden?: boolean;
+};
+
+export type MoveNodeRequest = {
+	parentId: number;
+	// Место среди разделов нового родителя, без учета самого раздела
+	index: number;
+};
+
+export type ContentApplied = {
+	version: string;
+};
 
 export type AdminRole = 'superadmin' | 'admin' | 'support';
 

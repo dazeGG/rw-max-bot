@@ -35,6 +35,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      # Запрещает pnpm db:seed --force: на сервере он стер бы правки из админки
+      NODE_ENV: production
       DATABASE_URL: postgres://rw:${POSTGRES_PASSWORD}@postgres:5432/rw_max_bot
       API_HOST: 0.0.0.0
       API_PORT: 3001

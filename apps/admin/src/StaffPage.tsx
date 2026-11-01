@@ -199,6 +199,21 @@ const ACTION_LABELS: Record<string, string> = {
 	'staff.reset_password': 'Сброс пароля',
 	'staff.disable': 'Отключение',
 	'staff.enable': 'Включение',
+	'content.create': 'Новый пункт',
+	'content.update': 'Изменение раздела',
+	'content.move': 'Перенос раздела',
+	'content.delete': 'Удаление раздела',
+};
+
+const FIELD_LABELS: Record<string, string> = {
+	title: 'название',
+	text: 'текст',
+	url: 'адрес',
+	targetId: 'цель перехода',
+	synonyms: 'фразы',
+	imageText: 'текст с картинки',
+	isActive: 'включение',
+	isHidden: 'скрытие',
 };
 
 const roleLabel = (value: unknown) => ROLE_LABELS[value as AdminRole] ?? String(value);
@@ -207,6 +222,8 @@ const auditDetails = ({ details }: AuditEntry) => [
 	details.role && `роль: ${roleLabel(details.role)}`,
 	details.fromRole && `роль: ${roleLabel(details.fromRole)} → ${roleLabel(details.toRole)}`,
 	details.fromName && `ФИО: ${String(details.fromName)} → ${String(details.toName)}`,
+	Array.isArray(details.fields) && `поля: ${details.fields.map(field => FIELD_LABELS[String(field)] ?? String(field)).join(', ')}`,
+	Number(details.removed) > 1 && `вместе с вложенными: ${Number(details.removed) - 1}`,
 ].filter(Boolean).join(', ');
 
 const AuditTable = () => {
@@ -216,7 +233,7 @@ const AuditTable = () => {
 		{ title: 'Когда', dataIndex: 'createdAt', render: (value: string) => formatDate(value) },
 		{ title: 'Кто', dataIndex: 'actorName' },
 		{ title: 'Действие', dataIndex: 'action', render: (action: string) => ACTION_LABELS[action] ?? action },
-		{ title: 'Сотрудник', key: 'target', render: (_, entry) => String(entry.details.login ?? '—') },
+		{ title: 'Объект', key: 'target', render: (_, entry) => String(entry.details.login ?? entry.details.title ?? '—') },
 		{ title: 'Подробности', key: 'details', render: (_, entry) => auditDetails(entry) || '—' },
 	];
 

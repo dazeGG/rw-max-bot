@@ -2,11 +2,12 @@ export type ContentRefreshResult = { ok: true; version: string; };
 
 // Вызывать после успешной фиксации изменений контента в БД, а не внутри транзакции:
 // бот в ответ на сигнал перечитывает данные через API и должен видеть уже сохраненную версию.
+// Бот отвечает, когда индекс поиска готов: это ~5 с на 2 vCPU, а после нескольких правок подряд — дольше
 export const notifyBotContentChanged = async (botControlUrl: string, token: string): Promise<ContentRefreshResult> => {
 	const response = await fetch(`${botControlUrl.replace(/\/+$/, '')}/internal/content/refresh`, {
 		method: 'POST',
 		headers: { authorization: `Bearer ${token}` },
-		signal: AbortSignal.timeout(10_000),
+		signal: AbortSignal.timeout(30_000),
 	});
 
 	if (!response.ok) {

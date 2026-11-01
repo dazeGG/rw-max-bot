@@ -1,9 +1,10 @@
 import type { ContentTree } from '../content/tree';
 import type { ContentNode } from '../content/types';
 
+import { isFinal, nodeReplies, renderNode, withOptions } from './reply';
 import { DEFAULT_SEARCH_POLICY } from './search';
 import type { Candidate, DialogSearch, SearchPolicy } from './search';
-import { escapeHtml, normalize, stripGreetingRaw } from './text';
+import { normalize, stripGreetingRaw } from './text';
 import type { DialogEventDetails, DialogEvents, DialogEventType, DialogInput, DialogResult, DialogUser, Reply, Session, SessionStore } from './types';
 
 const MAX_SUGGESTIONS = 3;
@@ -86,10 +87,10 @@ export class DialogEngine {
 
 		// После конечного ответа бот спросил «Могу ли я ещё Вам чем-то помочь?»: «да» — список тем, «нет» — прощание.
 		// Новый вопрос вместо «да» обрабатывается как обычно
-		if (this.isFinal(tree, current) && shown.every(node => tree.resolve(node).type === 'link')) {
+		if (isFinal(tree, current) && shown.every(node => tree.resolve(node).type === 'link')) {
 			if (YES_WORDS.has(rest)) {
 				await this.sessions.set(user.id, { nodeId: tree.root.id, choices: tree.visibleChildren(tree.root).map(node => node.id) });
-				return done('more', tree.root, [{ text: this.withOptions(tree, tree.settings['text.askMore'], tree.visibleChildren(tree.root)) }]);
+				return done('more', tree.root, [{ text: withOptions(tree, tree.settings['text.askMore'], tree.visibleChildren(tree.root)) }]);
 			}
 
 			if (NO_WORDS.has(rest)) {
@@ -124,7 +125,7 @@ export class DialogEngine {
 
 		if (labelled.length > 1 && labelled.length <= MAX_SUGGESTIONS) {
 			await this.sessions.set(user.id, { nodeId: current.id, choices: labelled.map(node => node.id) });
-			return done('clarify', current, [...greetingReplies, { text: this.withOptions(tree, tree.settings['text.didYouMean'], labelled, true) }], {
+			return done('clarify', current, [...greetingReplies, { text: withOptions(tree, tree.settings['text.didYouMean'], labelled, true) }], {
 				labelMatch: true,
 				suggested: labelled.map(node => node.code),
 			});
@@ -143,7 +144,7 @@ export class DialogEngine {
 		case 'ambiguous': {
 			// Search can miss the right section entirely: the last option always leads to people
 			const handoff = this.handoff(tree, choice.candidates);
-			const text = this.withOptions(tree, tree.settings['text.didYouMean'], choice.candidates, true) +
+			const text = withOptions(tree, tree.settings['text.didYouMean'], choice.candidates, true) +
 				(handoff ? `\n${choice.candidates.length + 1}. ${tree.settings['text.handoff']}` : '');
 			await this.sessions.set(user.id, { nodeId: current.id, choices: [...choice.candidates, ...handoff ? [handoff] : []].map(node => node.id) });
 			return done('clarify', current, [...greetingReplies, { text }], {
@@ -156,7 +157,7 @@ export class DialogEngine {
 		case 'none':
 			await this.events.onUnrecognized?.({ userId: user.id, text, nodeId: current.id });
 			await this.sessions.set(user.id, { nodeId: tree.root.id, choices: tree.visibleChildren(tree.root).map(node => node.id) });
-			return done('unrecognized', current, [{ text: this.withOptions(tree, tree.settings['text.fallback'], tree.visibleChildren(tree.root)) }], { candidates });
+			return done('unrecognized', current, [{ text: withOptions(tree, tree.settings['text.fallback'], tree.visibleChildren(tree.root)) }], { candidates });
 		}
 	}
 
@@ -268,49 +269,17 @@ export class DialogEngine {
 		return { kind: 'ambiguous', candidates: close.slice(0, MAX_SUGGESTIONS).map(candidate => candidate.node) };
 	}
 
+	render (tree: ContentTree, node: ContentNode): Reply {
+		return renderNode(tree, node);
+	}
+
 	private async open (user: DialogUser, tree: ContentTree, node: ContentNode): Promise<Reply[]> {
 		const target = tree.resolve(node);
-		// Конец цепочки: отдельным сообщением бот спрашивает, нужно ли что-то еще
-		const anythingElse: Reply[] = this.isFinal(tree, target) ? [{ text: tree.settings['text.anythingElse'] }] : [];
-
 		const displayed = target.type === 'link' ? [] : tree.visibleChildren(target);
+		// Ссылка: в сессии остается сама ссылка, чтобы «назад» вернул в раздел, где она лежит
 		await this.sessions.set(user.id, { nodeId: target.id, choices: displayed.map(option => option.id) });
 
-		// Ссылка: в сессии остается сама ссылка, чтобы «назад» вернул в раздел, где она лежит
-		if (target.type === 'link') {
-			return [{ text: target.text ?? this.optionLine(tree, node) }, ...anythingElse];
-		}
-
-		return [this.render(tree, target), ...anythingElse];
-	}
-
-	// Конечный ответ — раздел без вариантов ответа или ссылка
-	private isFinal (tree: ContentTree, node: ContentNode): boolean {
-		return node.id !== tree.root.id && (node.type === 'link' || tree.visibleChildren(node).every(child => tree.resolve(child).type === 'link'));
-	}
-
-	render (tree: ContentTree, node: ContentNode): Reply {
-		const text = node.text ?? `<b>${escapeHtml(node.title)}</b>`;
-
-		return {
-			text: this.withOptions(tree, text, tree.visibleChildren(node)),
-			...node.image ? { image: node.image } : {},
-			...node.file ? { file: { path: node.file, name: node.fileName ?? node.file } } : {},
-		};
-	}
-
-	// Варианты ответа перечисляются в тексте сообщения: пользователь отвечает своими словами или номером.
-	// Вопрос («…интересует?», «…по темам:») и его варианты — один блок, без пустой строки между ними;
-	// после адреса или примечания список ссылок отделяется пустой строкой
-	private withOptions (tree: ContentTree, text: string, options: ContentNode[], distinguishBranches = false): string {
-		if (options.length === 0) {
-			return text;
-		}
-
-		const separator = /[?:]\s*$/.test(text) ? '\n' : '\n\n';
-		const qualify = distinguishBranches && new Set(options.map(node => node.parentId)).size > 1;
-
-		return `${text}${separator}${options.map((option, i) => `${i + 1}. ${this.optionLine(tree, option, qualify)}`).join('\n')}`;
+		return nodeReplies(tree, node);
 	}
 
 	// Section named by the search.handoff setting, unless it is missing, disabled or already offered
@@ -340,18 +309,5 @@ export class DialogEngine {
 
 	private shownOptions (tree: ContentTree, session: Session): ContentNode[] {
 		return (session.choices ?? []).map(id => tree.get(id)).filter(node => node !== undefined);
-	}
-
-	private optionLine (tree: ContentTree, node: ContentNode, qualify = false): string {
-		const target = tree.resolve(node);
-		const parents: string[] = [];
-		if (qualify) {
-			for (let parent = tree.parent(node); parent && parent.id !== tree.root.id; parent = tree.parent(parent)) {
-				parents.unshift(parent.title);
-			}
-		}
-		const title = escapeHtml(parents.length > 0 ? `${node.title} (${parents.join(' / ')})` : node.title);
-
-		return target.type === 'link' && target.url ? `<a href="${escapeHtml(target.url)}">${title}</a>` : title;
 	}
 }

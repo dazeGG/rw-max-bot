@@ -5,6 +5,7 @@ import { BOT_LEASE_TTL_SECONDS } from '@rw/core';
 import { errorMessage } from '@rw/runtime';
 
 import { BotLease } from './bot-lease';
+import { RuleError } from './errors';
 import { logger } from './logger';
 import { adminRoutes } from './routes/admin';
 import { internalRoutes } from './routes/internal';
@@ -23,6 +24,10 @@ export const buildServer = () => {
 	app.setErrorHandler((error: { statusCode?: number; validation?: unknown; }, request, reply) => {
 		if (error.validation) {
 			return reply.code(400).send({ error: errorMessage(error) });
+		}
+
+		if (error instanceof RuleError) {
+			return reply.code(error.statusCode).send({ error: error.message });
 		}
 
 		logger.error('Request failed', {

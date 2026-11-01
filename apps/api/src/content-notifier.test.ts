@@ -35,13 +35,13 @@ describe('сигнал обновления контента бота', () => {
 		await expect(notifyBotContentChanged('http://bot:3002', 'secret')).rejects.toThrow('Connection refused');
 	});
 
-	it('ограничивает ожидание сигнала десятью секундами', async () => {
+	it('ограничивает ожидание сигнала тридцатью секундами', async () => {
 		const timeout = vi.spyOn(AbortSignal, 'timeout');
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ ok: true, version: 'v1' })));
 
 		try {
 			await notifyBotContentChanged('http://bot:3002', 'secret');
-			expect(timeout).toHaveBeenCalledWith(10_000);
+			expect(timeout).toHaveBeenCalledWith(30_000);
 		} finally {
 			timeout.mockRestore();
 		}
