@@ -227,6 +227,36 @@ button {
 	overflow-wrap: anywhere;
 }
 
+.message-editor h1,
+.message-view h1 {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+.message-editor blockquote,
+.message-view blockquote {
+	margin: 0;
+	padding-left: 10px;
+	border-left: 3px solid var(--border);
+}
+
+.message-editor mark,
+.message-view mark,
+.editor-toolbar mark {
+	color: inherit;
+	background: #fff0a8;
+}
+
+.message-editor code,
+.message-view code {
+	padding: 0 3px;
+	font-family: ui-monospace, Consolas, monospace;
+	background: var(--bg);
+	border-radius: 3px;
+}
+
 .message-editor a,
 .message-view a {
 	color: var(--accent);

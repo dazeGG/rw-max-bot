@@ -22,6 +22,8 @@ describe('текст сообщения', () => {
 
 	it('принимает разрешенную разметку', () => {
 		expect(messageError('<b>Жирный <i>курсив</i></b> <a href="tel:88005500620">телефон</a> &amp; текст')).toBeNull();
+		expect(messageError('<u>а</u> <s>б</s> <mark>в</mark> <code>г</code>')).toBeNull();
+		expect(messageError('<h1><b>Заголовок</b></h1>\n<blockquote>строка\n<i>строка</i></blockquote>')).toBeNull();
 	});
 
 	it.each([
@@ -33,6 +35,14 @@ describe('текст сообщения', () => {
 		['лишний </b>'],
 		['обрывок <b'],
 		['<img src=x>'],
+		['<b><h1>заголовок внутри</h1></b>'],
+		['<blockquote><h1>заголовок в цитате</h1></blockquote>'],
+		['<h2>другой уровень</h2>'],
+		['<mark onclick="x()">м</mark>'],
+		['<strong>синоним тега</strong>'],
+		['<a>без адреса</a>'],
+		['</a>'],
+		['<u>не закрыт'],
 	])('отклоняет %s', text => {
 		expect(messageError(text)).not.toBeNull();
 	});

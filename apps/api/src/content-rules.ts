@@ -7,6 +7,8 @@ export const MAX_MESSAGE_LENGTH = 4000;
 
 const MESSAGE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'tel:', 'mailto:']);
 const LINK_NODE_PROTOCOLS = new Set(['http:', 'https:']);
+const INLINE_TAGS = new Set(['b', 'i', 'u', 's', 'mark', 'code']);
+const BLOCK_TAGS = new Set(['h1', 'blockquote']);
 
 type TreeNode = {
 	id: number;
@@ -33,16 +35,20 @@ export const messageError = (text: string): string | null => {
 
 	for (const [tag] of text.matchAll(/<[^>]*>?/g)) {
 		const link = /^<a href="([^"]*)">$/.exec(tag);
+		const plain = /^<(\/?)([a-z0-9]+)>$/.exec(tag);
 
-		if (tag === '<b>' || tag === '<i>') {
-			open.push(tag.slice(1, -1));
-		} else if (link) {
+		if (link) {
 			if (!hasProtocol(link[1], MESSAGE_LINK_PROTOCOLS)) {
 				return `Недопустимая ссылка в тексте: ${link[1]}`;
 			}
 
 			open.push('a');
-		} else if (!/^<\/[abi]>$/.test(tag) || open.pop() !== tag.slice(2, -1)) {
+		} else if (plain?.[1] === '/' && open.at(-1) === plain[2]) {
+			open.pop();
+		} else if (plain?.[1] === '' && (INLINE_TAGS.has(plain[2]) || (BLOCK_TAGS.has(plain[2]) && open.length === 0))) {
+			// Заголовок и цитата — отдельные блоки: внутрь другой разметки они не вкладываются
+			open.push(plain[2]);
+		} else {
 			return `Недопустимая разметка в тексте: ${tag}`;
 		}
 	}

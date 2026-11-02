@@ -1,20 +1,35 @@
-// Текст сообщения хранится так, как уходит в MAX: строки через \n и теги <b>, <i>, <a href>.
-// В редакторе это абзацы: одна строка — один абзац, пустая строка — пустой абзац
+// Текст сообщения хранится так, как уходит в MAX: строки через \n и HTML-теги из официального списка
+// (https://dev.max.ru/docs-api/use-cases/sending-messages/text-formatting).
+// В редакторе это блоки: одна строка — один абзац, пустая строка — пустой абзац
 
 import type { JSONContent } from '@tiptap/core';
+import { Blockquote } from '@tiptap/extension-blockquote';
 import { Bold } from '@tiptap/extension-bold';
+import { Code } from '@tiptap/extension-code';
 import { Document } from '@tiptap/extension-document';
+import { Heading } from '@tiptap/extension-heading';
+import { Highlight } from '@tiptap/extension-highlight';
 import { Italic } from '@tiptap/extension-italic';
 import { Link } from '@tiptap/extension-link';
 import { Paragraph } from '@tiptap/extension-paragraph';
+import { Strike } from '@tiptap/extension-strike';
 import { Text } from '@tiptap/extension-text';
+import { Underline } from '@tiptap/extension-underline';
 
 export const messageExtensions = [
 	Document,
 	Paragraph,
 	Text,
+	// MAX показывает все уровни заголовков одинаково, поэтому уровень один
+	Heading.configure({ levels: [1] }),
+	// В цитате только абзацы: заголовок в ней не из чего было бы сохранить
+	Blockquote.extend({ content: 'paragraph+' }),
 	Bold,
 	Italic,
+	Underline,
+	Strike,
+	Highlight,
+	Code,
 	Link.configure({
 		autolink: false,
 		openOnClick: false,
@@ -24,53 +39,93 @@ export const messageExtensions = [
 // Иначе пробелы по краям строк потеряются при разборе
 export const messageParseOptions = { preserveWhitespace: 'full' } as const;
 
-const TOKEN = /<\/?[abi](?: href="[^"]*")?>|\n|[^<\n]+/g;
+const TOKEN = /<\/?(?:a|b|i|u|s|mark|code|h1|blockquote)(?: href="[^"]*")?>|\n|[^<\n]+/g;
 
-// Абзац не может быть внутри тега, поэтому на переводе строки открытые теги закрываем и открываем заново
+const tagName = (tag: string) => /^<\/?([a-z0-9]+)/.exec(tag)![1];
+
+// Абзац не может быть внутри тега, поэтому на переводе строки открытые теги закрываем и открываем заново.
+// Перевод строки сразу за заголовком или цитатой только отделяет их от следующего блока
 export const messageToEditorHtml = (text: string): string => {
-	const open: string[] = [];
-	let html = '<p>';
+	const inline: string[] = [];
+	let html = '';
+	let line = '';
+	let wrapper = 'p';
+	let afterBlock = false;
+
+	const flushLine = () => {
+		const closing = [...inline].reverse().map(tag => `</${tagName(tag)}>`).join('');
+		html += `<${wrapper}>${line}${closing}</${wrapper}>`;
+		line = inline.join('');
+	};
 
 	for (const [token] of text.matchAll(TOKEN)) {
 		if (token === '\n') {
-			html += `${[...open].reverse().map(tag => `</${tag[1]}>`).join('')}</p><p>${open.join('')}`;
-		} else {
-			if (token.startsWith('</')) {
-				open.pop();
-			} else if (token.startsWith('<')) {
-				open.push(token);
+			if (!afterBlock) {
+				flushLine();
 			}
 
-			html += token;
+			afterBlock = false;
+		} else if (token === '<h1>' || token === '<blockquote>') {
+			if (line) {
+				flushLine();
+			}
+
+			afterBlock = false;
+
+			if (token === '<h1>') {
+				wrapper = 'h1';
+			} else {
+				html += token;
+			}
+		} else if (token === '</h1>' || token === '</blockquote>') {
+			flushLine();
+			wrapper = 'p';
+			afterBlock = true;
+
+			if (token === '</blockquote>') {
+				html += token;
+			}
+		} else {
+			if (token.startsWith('</')) {
+				inline.pop();
+			} else if (token.startsWith('<')) {
+				inline.push(token);
+			}
+
+			line += token;
+			afterBlock = false;
 		}
 	}
 
-	return `${html}</p>`;
+	if (!afterBlock || line) {
+		flushLine();
+	}
+
+	return html;
 };
 
 const escapeText = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 type Mark = NonNullable<JSONContent['marks']>[number];
 
-const MARK_ORDER = ['link', 'bold', 'italic'];
-
-const openTag = (mark: Mark) => {
-	if (mark.type === 'link') {
-		return `<a href="${escapeText(String(mark.attrs?.href)).replace(/"/g, '&quot;')}">`;
-	}
-
-	return mark.type === 'bold' ? '<b>' : '<i>';
+const MARK_TAGS: Record<string, string> = {
+	bold: 'b',
+	italic: 'i',
+	underline: 'u',
+	strike: 's',
+	highlight: 'mark',
+	code: 'code',
 };
 
-const closeTag = (mark: Mark) => {
-	if (mark.type === 'link') {
-		return '</a>';
-	}
+const MARK_ORDER = ['link', ...Object.keys(MARK_TAGS)];
 
-	return mark.type === 'bold' ? '</b>' : '</i>';
-};
+const openTag = (mark: Mark) => mark.type === 'link'
+	? `<a href="${escapeText(String(mark.attrs?.href)).replace(/"/g, '&quot;')}">`
+	: `<${MARK_TAGS[mark.type]}>`;
 
-const paragraphToLine = (paragraph: JSONContent) => {
+const closeTag = (mark: Mark) => mark.type === 'link' ? '</a>' : `</${MARK_TAGS[mark.type]}>`;
+
+const inlineToLine = (block: JSONContent) => {
 	const open: Mark[] = [];
 	let line = '';
 
@@ -80,7 +135,7 @@ const paragraphToLine = (paragraph: JSONContent) => {
 		}
 	};
 
-	for (const node of paragraph.content ?? []) {
+	for (const node of block.content ?? []) {
 		const marks = [...node.marks ?? []].sort((a, b) => MARK_ORDER.indexOf(a.type) - MARK_ORDER.indexOf(b.type));
 		let common = 0;
 
@@ -104,4 +159,16 @@ const paragraphToLine = (paragraph: JSONContent) => {
 	return line;
 };
 
-export const editorDocToMessage = (doc: JSONContent): string => (doc.content ?? []).map(paragraphToLine).join('\n');
+const blockToMessage = (block: JSONContent) => {
+	if (block.type === 'heading') {
+		return `<h1>${inlineToLine(block)}</h1>`;
+	}
+
+	if (block.type === 'blockquote') {
+		return `<blockquote>${(block.content ?? []).map(inlineToLine).join('\n')}</blockquote>`;
+	}
+
+	return inlineToLine(block);
+};
+
+export const editorDocToMessage = (doc: JSONContent): string => (doc.content ?? []).map(blockToMessage).join('\n');
