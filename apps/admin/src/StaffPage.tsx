@@ -6,9 +6,8 @@ import { useState } from 'react';
 import type { AdminRole, AdminUser, AuditEntry, CreateStaffRequest, StaffInvite, StaffMember } from '@rw/core';
 
 import { api } from './api';
+import { ACTION_LABELS, fieldLabels, formatDate } from './labels';
 import { errorText, ROLE_LABELS } from './session';
-
-const formatDate = (value: string) => new Date(value).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
 
 const StatusTag = ({ member }: { member: StaffMember; }) => {
 	if (!member.isActive) {
@@ -193,38 +192,24 @@ const StaffTable = ({ user }: { user: AdminUser; }) => {
 	);
 };
 
-const ACTION_LABELS: Record<string, string> = {
-	'staff.create': 'Добавление сотрудника',
-	'staff.update': 'Изменение сотрудника',
-	'staff.reset_password': 'Сброс пароля',
-	'staff.disable': 'Отключение',
-	'staff.enable': 'Включение',
-	'content.create': 'Новый пункт',
-	'content.update': 'Изменение раздела',
-	'content.move': 'Перенос раздела',
-	'content.delete': 'Удаление раздела',
-};
-
-const FIELD_LABELS: Record<string, string> = {
-	title: 'название',
-	text: 'текст',
-	url: 'адрес',
-	targetId: 'цель перехода',
-	synonyms: 'фразы',
-	imageText: 'текст с картинки',
-	isActive: 'включение',
-	isHidden: 'скрытие',
-};
-
 const roleLabel = (value: unknown) => ROLE_LABELS[value as AdminRole] ?? String(value);
 
-const auditDetails = ({ details }: AuditEntry) => [
-	details.role && `роль: ${roleLabel(details.role)}`,
-	details.fromRole && `роль: ${roleLabel(details.fromRole)} → ${roleLabel(details.toRole)}`,
-	details.fromName && `ФИО: ${String(details.fromName)} → ${String(details.toName)}`,
-	Array.isArray(details.fields) && `поля: ${details.fields.map(field => FIELD_LABELS[String(field)] ?? String(field)).join(', ')}`,
-	Number(details.removed) > 1 && `вместе с вложенными: ${Number(details.removed) - 1}`,
-].filter(Boolean).join(', ');
+const restoreDetails = (details: AuditEntry['details']) => [
+	Number(details.changed) > 0 && `изменено разделов: ${Number(details.changed)}`,
+	Number(details.returned) > 0 && `вернулось: ${Number(details.returned)}`,
+	Number(details.removed) > 0 && `удалено: ${Number(details.removed)}`,
+].filter(Boolean).join(', ') || 'только служебные тексты';
+
+const auditDetails = ({ action, details }: AuditEntry) => action === 'content.restore'
+	? restoreDetails(details)
+	: [
+		details.role && `роль: ${roleLabel(details.role)}`,
+		details.fromRole && `роль: ${roleLabel(details.fromRole)} → ${roleLabel(details.toRole)}`,
+		details.fromName && `ФИО: ${String(details.fromName)} → ${String(details.toName)}`,
+		Array.isArray(details.fields) && `поля: ${fieldLabels(details.fields)}`,
+		Array.isArray(details.keys) && fieldLabels(details.keys),
+		Number(details.removed) > 1 && `вместе с вложенными: ${Number(details.removed) - 1}`,
+	].filter(Boolean).join(', ');
 
 const AuditTable = () => {
 	const log = useQuery({ queryKey: ['audit-log'], queryFn: api.auditLog });

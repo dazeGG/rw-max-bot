@@ -1,6 +1,6 @@
 // Контракты HTTP API: общие для API, бота и админки
 
-import type { ContentNode, NodeType, Settings } from './content/types';
+import type { ContentNode, NodeType, SettingKey, Settings } from './content/types';
 
 // Контент для бота. version меняется при любой правке, бот передает ее в If-None-Match
 export type ContentSnapshot = {
@@ -73,6 +73,38 @@ export type MoveNodeRequest = {
 
 export type ContentApplied = {
 	version: string;
+};
+
+export type SettingChange = {
+	key: SettingKey;
+	value: string;
+	// Значение, которое правил сотрудник: если оно уже другое, правка не применится
+	previous: string;
+};
+
+export type UpdateSettingsRequest = {
+	changes: SettingChange[];
+};
+
+export type ContentVersionEntry = {
+	id: string;
+	version: string;
+	createdAt: string;
+	// null — изменение не из админки или начальное состояние
+	actorName: string | null;
+	action: string | null;
+	title: string | null;
+	fields: string[];
+	current: boolean;
+	restorable: boolean;
+};
+
+// Что изменится при возврате к версии: названия разделов и число служебных текстов
+export type ContentVersionDiff = {
+	changed: string[];
+	returned: string[];
+	removed: string[];
+	settings: number;
 };
 
 export type AdminRole = 'superadmin' | 'admin' | 'support';

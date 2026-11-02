@@ -311,3 +311,11 @@ button {
 		padding: 16px;
 	}
 }
+
+.settings-form {
+	max-width: 720px;
+}
+
+.settings-form .message-editor .ProseMirror {
+	min-height: 64px;
+}

@@ -6,6 +6,8 @@ import { api, UnauthorizedError } from './api';
 
 const ME_KEY = ['me'];
 
+export const CONTENT_KEY = ['content'];
+
 // Сессия закончилась или сотрудника отключили: возвращаем на форму входа и забываем чужие данные
 export const signedOut = () => {
 	queryClient.setQueryData(ME_KEY, null);

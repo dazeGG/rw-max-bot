@@ -1,60 +1,23 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Alert, App, Button, Form, Input, Modal, Radio, Select, Tag, Tree as AntTree } from 'antd';
 import type { TreeDataNode, TreeProps } from 'antd';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import type { AdminContentNode, AdminUser, CreateNodeRequest, NodeType } from '@rw/core';
 
 import { api } from './api';
+import { ApplyStatus, useApply } from './apply-status';
 import { ancestorsOf, buildTree, dropPlace, isSamePlace, matchingIds, pathOf } from './content-tree';
 import type { Tree } from './content-tree';
 import { NodeForm } from './NodeForm';
-import { errorText, queryClient } from './session';
-
-const CONTENT_KEY = ['content'];
+import { CONTENT_KEY, errorText, queryClient } from './session';
 
 const TYPE_OPTIONS: { value: NodeType; label: string; }[] = [
 	{ value: 'section', label: 'Ответ' },
 	{ value: 'link', label: 'Ссылка на сайт' },
 	{ value: 'goto', label: 'Переход в другой раздел' },
 ];
-
-type ApplyStatus = 'idle' | 'applying' | 'applied' | 'deferred';
-
-const APPLY_LABELS: Record<ApplyStatus, string> = {
-	idle: '',
-	applying: 'Бот применяет правки…',
-	applied: 'Бот применил правки',
-	deferred: 'Правка сохранена. Бот применит ее в течение 5 минут',
-};
-
-// Бот перестраивает индекс поиска несколько секунд, поэтому сохранение его не ждет.
-// При правках подряд статус показывает только последний сигнал: бот в итоге применит самую свежую версию
-const useApply = () => {
-	const [status, setStatus] = useState<ApplyStatus>('idle');
-	const last = useRef(0);
-
-	const apply = useCallback(() => {
-		const id = ++last.current;
-
-		setStatus('applying');
-		api.applyContent().then(
-			() => {
-				if (id === last.current) {
-					setStatus('applied');
-				}
-			},
-			() => {
-				if (id === last.current) {
-					setStatus('deferred');
-				}
-			},
-		);
-	}, []);
-
-	return { status, apply };
-};
 
 const NodeLabel = ({ node, off }: { node: AdminContentNode; off: boolean; }) => (
 	<span className="tree-row">
@@ -207,7 +170,7 @@ export const ContentPage = ({ user }: { user: AdminUser; }) => {
 					<Input.Search allowClear placeholder="Поиск по названию и фразам" value={query} onChange={event => setQuery(event.target.value)} />
 					<Button type="primary" onClick={() => setAdding(true)}>Добавить</Button>
 				</div>
-				{status !== 'idle' && <div className={status === 'deferred' ? 'apply-status warn' : 'apply-status'} role="status">{APPLY_LABELS[status]}</div>}
+				<ApplyStatus status={status} />
 				{visible?.size === 0 && <p className="muted">Ничего не найдено</p>}
 				<AntTree
 					blockNode

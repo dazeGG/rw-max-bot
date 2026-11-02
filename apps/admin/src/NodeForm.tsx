@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { Alert, App, Button, Checkbox, Form, Input, Modal, Select } from 'antd';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useBlocker, useNavigate } from 'react-router';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 
 import type { AdminContentNode, AdminUser, Settings, UpdateNodeRequest } from '@rw/core';
 
@@ -10,6 +10,7 @@ import { pathOf, previewReplies, subtreeOf } from './content-tree';
 import type { Tree } from './content-tree';
 import { MessageEditor, MessageView } from './MessageEditor';
 import { errorText } from './session';
+import { useUnsavedGuard } from './unsaved';
 
 // Лимит текста сообщения в API MAX. Сервер проверяет сам текст, здесь — текст вместе с вариантами
 const MAX_MESSAGE_LENGTH = 4000;
@@ -110,8 +111,8 @@ const DeleteModal = ({ node, tree, settings, dirty, onDisable, onDeleted, onClos
 			)}
 		>
 			{handoff
-				? <Alert type="warning" title="На этот раздел ведет пункт «Нет подходящего варианта», поэтому удалить его нельзя. Раздел можно выключить: пункт исчезнет из уточнений поиска." />
-				: <p>Восстановить раздел будет нельзя. Если он может понадобиться, лучше выключить его.</p>}
+				? <Alert type="warning" title="На этот раздел ведет пункт «Нет подходящего варианта», поэтому удалить его нельзя. Раздел можно выключить: пункт исчезнет из уточнений поиска. Куда ведет пункт, меняется в настройках." />
+				: <p>Вернуть раздел можно будет только вместе со всем контентом: в настройках, в истории версий. Если он может понадобиться, лучше выключить его.</p>}
 			{nested > 0 && <p>Вместе с ним будут удалены вложенные разделы: {nested}.</p>}
 			{gotos.length > 0 && (
 				<>
@@ -150,27 +151,7 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 
 	const dirty = (Object.keys(initial) as (keyof Values)[]).some(key => JSON.stringify(values[key]) !== JSON.stringify(initial[key]));
 
-	// После удаления раздела уходим со страницы сами, спрашивать про несохраненное незачем
-	const leaving = useRef(false);
-	const dirtyRef = useRef(dirty);
-
-	useEffect(() => {
-		dirtyRef.current = dirty;
-	}, [dirty]);
-
-	const blocker = useBlocker(({ currentLocation, nextLocation }) =>
-		dirtyRef.current && !leaving.current && currentLocation.pathname !== nextLocation.pathname);
-
-	useEffect(() => {
-		if (!dirty) {
-			return;
-		}
-
-		const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-
-		window.addEventListener('beforeunload', warn);
-		return () => window.removeEventListener('beforeunload', warn);
-	}, [dirty]);
+	const { leave, modal } = useUnsavedGuard(dirty, 'Если уйти сейчас, изменения в этом разделе пропадут.');
 
 	const save = useMutation({
 		mutationFn: (body: UpdateNodeRequest) => api.updateNode(node.id, body),
@@ -199,7 +180,8 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 	};
 
 	const deleted = async () => {
-		leaving.current = true;
+		// Раздела больше нет: спрашивать про несохраненное незачем
+		leave();
 		await onSaved();
 		message.success('Раздел удален');
 		await navigate(node.parentId === null ? '/content' : `/content/${node.parentId}`);
@@ -312,17 +294,7 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 				/>
 			)}
 
-			<Modal
-				open={blocker.state === 'blocked'}
-				title="Правки не сохранены"
-				okText="Уйти без сохранения"
-				okButtonProps={{ danger: true }}
-				cancelText="Остаться"
-				onOk={() => blocker.proceed?.()}
-				onCancel={() => blocker.reset?.()}
-			>
-				Если уйти сейчас, изменения в этом разделе пропадут.
-			</Modal>
+			{modal}
 		</div>
 	);
 };

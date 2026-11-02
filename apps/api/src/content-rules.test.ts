@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { flattenSeed } from '@rw/core';
-import type { NodeType } from '@rw/core';
+import { DEFAULT_SETTINGS, flattenSeed } from '@rw/core';
+import type { ContentNode, NodeType, SettingKey } from '@rw/core';
 
-import { linkUrlError, messageError, moveError, normalizeSynonyms, parentError, subtreeIds, targetError } from './content-rules';
+import { diffContent, imagesChanged, linkUrlError, mergeHistory, messageError, moveError, normalizeSynonyms, parentError, settingError, subtreeIds, targetError, toContentNode } from './content-rules';
 
 const node = (id: number, parentId: number | null, type: NodeType = 'section', targetId: number | null = null) => ({ id, parentId, type, targetId });
 
@@ -105,5 +105,111 @@ describe('структура дерева', () => {
 describe('синонимы', () => {
 	it('убирает пустые, лишние пробелы и повторы', () => {
 		expect(normalizeSynonyms([' как сдать билет ', '', '  ', 'как сдать билет', 'вернуть деньги'])).toEqual(['как сдать билет', 'вернуть деньги']);
+	});
+});
+
+describe('история версий', () => {
+	const seed = flattenSeed().slice(0, 4).map(toContentNode);
+
+	it('вид раздела не зависит от порядка ключей и старых снимков без новых полей', () => {
+		const old: Partial<ContentNode> = { ...seed[1] };
+		delete old.imageText;
+		const reversed = Object.fromEntries(Object.entries(old).reverse()) as ContentNode;
+
+		expect(JSON.stringify(toContentNode(reversed))).toBe(JSON.stringify(toContentNode({ ...seed[1], imageText: null })));
+	});
+
+	it('различия: изменен, вернулся, исчез', () => {
+		const [root, first, second, third] = seed;
+		const diff = diffContent([root, first, second], [root, { ...first, title: 'Новое' }, third]);
+
+		expect(diff.changed.map(item => item.id)).toEqual([first.id]);
+		expect(diff.returned.map(item => item.id)).toEqual([third.id]);
+		expect(diff.removed.map(item => item.id)).toEqual([second.id]);
+	});
+
+	it('одинаковые версии без различий', () => {
+		expect(diffContent(seed, seed.map(toContentNode))).toEqual({ changed: [], returned: [], removed: [] });
+	});
+
+	it('картинки меняет только суперадмин: важны только измененные разделы', () => {
+		const [root, first] = seed;
+
+		expect(imagesChanged([root, first], [{ ...first, title: 'x' }])).toBe(false);
+		expect(imagesChanged([root, first], [{ ...first, image: 'new.jpg' }])).toBe(true);
+		expect(imagesChanged([root, first], [{ ...first, imageText: 'новые цены' }])).toBe(true);
+	});
+
+	const at = (minute: number) => new Date(Date.UTC(2026, 10, 2, 10, minute));
+	const edit = (id: number, minute: number, version: string) => ({
+		id,
+		createdAt: at(minute),
+		actorName: 'Сотрудник',
+		action: 'content.update',
+		details: { version, title: 'Раздел', fields: ['text'] },
+	});
+
+	it('собирает правки и снимки без автора, новые сверху', () => {
+		const history = mergeHistory(
+			[edit(2, 20, 'b'), edit(1, 10, 'a')],
+			[{ version: 'b', createdAt: at(20) }, { version: 'a', createdAt: at(10) }, { version: 'start', createdAt: at(1) }],
+			'b',
+		);
+
+		expect(history.map(entry => entry.version)).toEqual(['b', 'a', 'start']);
+		expect(history[0]).toMatchObject({ actorName: 'Сотрудник', title: 'Раздел', fields: ['text'], current: true, restorable: false });
+		expect(history[2]).toMatchObject({ actorName: null, current: false, restorable: true });
+	});
+
+	it('в истории видно, какие служебные тексты изменились', () => {
+		const settingsEdit = { ...edit(1, 10, 'a'), action: 'settings.update', details: { version: 'a', title: 'Служебные тексты', keys: ['text.goodbye'] } };
+
+		expect(mergeHistory([settingsEdit], [], 'a')[0].fields).toEqual(['text.goodbye']);
+	});
+
+	it('снимок до первой правки с тем же временем остается ниже нее', () => {
+		const history = mergeHistory([edit(1, 10, 'a')], [{ version: 'start', createdAt: at(10) }, { version: 'a', createdAt: at(10) }], 'a');
+
+		expect(history.map(entry => entry.version)).toEqual(['a', 'start']);
+	});
+
+	it('возврат к начальной версии не убирает ее строку из истории', () => {
+		const history = mergeHistory([edit(2, 20, 'start'), edit(1, 10, 'a')], [{ version: 'a', createdAt: at(10) }, { version: 'start', createdAt: at(1) }], 'start');
+
+		expect(history.map(entry => [entry.version, entry.actorName, entry.current])).toEqual([
+			['start', 'Сотрудник', true],
+			['a', 'Сотрудник', false],
+			['start', null, false],
+		]);
+	});
+
+	it('при возврате к старому состоянию текущей помечена только верхняя запись', () => {
+		const history = mergeHistory([edit(3, 30, 'a'), edit(2, 20, 'b'), edit(1, 10, 'a')], [], 'a');
+
+		expect(history.map(entry => entry.current)).toEqual([true, false, false]);
+		expect(history.map(entry => entry.restorable)).toEqual([false, true, false]);
+	});
+});
+
+describe('служебные тексты', () => {
+	const nodes = [{ code: 'root', parentId: null }, { code: 'support', parentId: 1 }];
+
+	it('все значения по умолчанию проходят проверку', () => {
+		for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+			expect(settingError(key as SettingKey, value, nodes), key).toBeNull();
+		}
+	});
+
+	it('текст не может быть пустым или с недопустимой разметкой', () => {
+		expect(settingError('text.greeting', '  ', nodes)).not.toBeNull();
+		expect(settingError('text.greeting', '<script>x</script>', nodes)).not.toBeNull();
+		expect(settingError('text.greeting', '<b>Здравствуйте!</b>', nodes)).toBeNull();
+	});
+
+	it('пункт поддержки ведет в существующий раздел или выключен', () => {
+		expect(settingError('search.handoff', '', nodes)).toBeNull();
+		expect(settingError('search.handoff', 'support', nodes)).toBeNull();
+		expect(settingError('search.handoff', 'нет-такого', nodes)).not.toBeNull();
+		expect(settingError('search.handoff', 'root', nodes), 'корень').not.toBeNull();
 	});
 });

@@ -9,6 +9,7 @@ import { ContentPage } from './ContentPage';
 import { InvitePage } from './InvitePage';
 import { LoginPage } from './LoginPage';
 import { errorText, isManager, signedOut, useMe } from './session';
+import { SettingsPage } from './SettingsPage';
 import { StaffPage } from './StaffPage';
 
 const Shell = ({ user }: { user: AdminUser; }) => {
@@ -24,6 +25,7 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 		...manager
 			? [
 				{ key: 'content', label: <Link to="/content">Контент</Link> },
+				{ key: 'settings', label: <Link to="/settings">Настройки</Link> },
 				{ key: 'staff', label: <Link to="/staff">Сотрудники</Link> },
 			]
 			: [],
@@ -42,6 +44,7 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 				{manager && (
 					<>
 						<Route path="/content/:nodeId?" element={<ContentPage user={user} />} />
+						<Route path="/settings" element={<SettingsPage />} />
 						<Route path="/staff" element={<StaffPage user={user} />} />
 					</>
 				)}

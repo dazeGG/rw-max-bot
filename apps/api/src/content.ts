@@ -3,30 +3,13 @@ import { createHash } from 'node:crypto';
 import { asc } from 'drizzle-orm';
 
 import { DEFAULT_SETTINGS } from '@rw/core';
-import type { AdminContentNode, ContentNode, ContentResponse, ContentSnapshot, Settings } from '@rw/core';
+import type { AdminContentNode, ContentResponse, ContentSnapshot, Settings } from '@rw/core';
 import { contentNodes, contentVersions, db, settings } from '@rw/db';
 import { errorMessage } from '@rw/runtime';
 
+import type { Tx } from './audit';
+import { toContentNode } from './content-rules';
 import { logger } from './logger';
-
-const toContentNode = (row: typeof contentNodes.$inferSelect): ContentNode => ({
-	id: row.id,
-	parentId: row.parentId,
-	code: row.code,
-	type: row.type,
-	title: row.title,
-	text: row.text,
-	url: row.url,
-	targetId: row.targetId,
-	image: row.image,
-	imageText: row.imageText,
-	file: row.file,
-	fileName: row.fileName,
-	synonyms: row.synonyms,
-	sort: row.sort,
-	isActive: row.isActive,
-	isHidden: row.isHidden,
-});
 
 // Для админки: updatedAt — версия полей формы, с ней сравнивается сохранение (кто-то мог изменить раздел раньше)
 export const toAdminNode = (row: typeof contentNodes.$inferSelect): AdminContentNode => ({
@@ -35,10 +18,12 @@ export const toAdminNode = (row: typeof contentNodes.$inferSelect): AdminContent
 	updatedBy: row.updatedBy,
 });
 
-const loadSettings = async (): Promise<Settings> => {
+type Reader = Pick<typeof db, 'select'>;
+
+export const loadSettings = async (reader: Reader = db): Promise<Settings> => {
 	const merged: Settings = { ...DEFAULT_SETTINGS };
 
-	for (const row of await db.select().from(settings)) {
+	for (const row of await reader.select().from(settings)) {
 		if (row.key in merged) {
 			merged[row.key as keyof Settings] = row.value;
 		}
@@ -47,23 +32,40 @@ const loadSettings = async (): Promise<Settings> => {
 	return merged;
 };
 
-const selectNodes = () => db.select().from(contentNodes).orderBy(asc(contentNodes.sort), asc(contentNodes.id));
+const selectNodes = (reader: Reader = db) => reader.select().from(contentNodes).orderBy(asc(contentNodes.sort), asc(contentNodes.id));
 
 export const loadAdminContent = async (): Promise<ContentResponse> => {
 	const [rows, merged] = await Promise.all([selectNodes(), loadSettings()]);
 	return { nodes: rows.map(toAdminNode), settings: merged };
 };
 
-// Весь контент, включая выключенные разделы: дерево для бота собирает ContentTree, админке нужны все.
-// version — хеш содержимого: бот перекачивает контент, только если он изменился (ТЗ п. 4.3)
-export const loadContent = async (): Promise<ContentSnapshot> => {
-	const [rows, merged] = await Promise.all([selectNodes(), loadSettings()]);
+// version — хеш содержимого: бот перекачивает контент, только если он изменился (ТЗ п. 4.3).
+// Запросы по очереди: в транзакции они идут через одно соединение
+const buildSnapshot = async (reader: Reader = db): Promise<ContentSnapshot> => {
+	const rows = await selectNodes(reader);
+	const merged = await loadSettings(reader);
 	const nodes = rows.map(toContentNode);
-
 	const version = createHash('sha256').update(JSON.stringify({ nodes, settings: merged })).digest('hex').slice(0, 16);
-	const snapshot = { version, nodes, settings: merged };
+
+	return { version, nodes, settings: merged };
+};
+
+// Весь контент, включая выключенные разделы: дерево для бота собирает ContentTree, админке нужны все
+export const loadContent = async (): Promise<ContentSnapshot> => {
+	const snapshot = await buildSnapshot();
 
 	await rememberVersion(snapshot);
+
+	return snapshot;
+};
+
+// В той же транзакции, что и правка: если она откатится, снимка не останется
+export const storeSnapshot = async (tx: Tx): Promise<ContentSnapshot> => {
+	const snapshot = await buildSnapshot(tx);
+
+	await tx.insert(contentVersions)
+		.values({ version: snapshot.version, nodes: snapshot.nodes, settings: snapshot.settings })
+		.onConflictDoNothing();
 
 	return snapshot;
 };

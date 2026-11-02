@@ -1,6 +1,6 @@
 // Правила редактора дерева: без БД, чтобы их можно было проверить на начальном контенте
 
-import type { NodeType } from '@rw/core';
+import type { ContentNode, ContentVersionEntry, NodeType, SettingKey } from '@rw/core';
 
 // Лимит текста сообщения в API MAX
 export const MAX_MESSAGE_LENGTH = 4000;
@@ -111,3 +111,108 @@ export const targetError = (nodes: TreeNode[], id: number | null, targetId: numb
 
 export const normalizeSynonyms = (synonyms: string[]): string[] =>
 	[...new Set(synonyms.map(synonym => synonym.trim()).filter(Boolean))];
+
+// Поля раздела в постоянном порядке: по этому виду считается хеш версии и сравниваются снимки.
+// В старых снимках новых полей может не быть, а JSONB не хранит порядок ключей
+export const toContentNode = (node: ContentNode): ContentNode => ({
+	id: node.id,
+	parentId: node.parentId,
+	code: node.code,
+	type: node.type,
+	title: node.title,
+	text: node.text ?? null,
+	url: node.url ?? null,
+	targetId: node.targetId ?? null,
+	image: node.image ?? null,
+	imageText: node.imageText ?? null,
+	file: node.file ?? null,
+	fileName: node.fileName ?? null,
+	synonyms: node.synonyms ?? [],
+	sort: node.sort,
+	isActive: node.isActive,
+	isHidden: node.isHidden,
+});
+
+export const diffContent = (current: ContentNode[], target: ContentNode[]) => {
+	const currentById = new Map(current.map(node => [node.id, node]));
+	const targetIds = new Set(target.map(node => node.id));
+
+	return {
+		changed: target.filter(node => currentById.has(node.id) && JSON.stringify(node) !== JSON.stringify(currentById.get(node.id))),
+		returned: target.filter(node => !currentById.has(node.id)),
+		removed: current.filter(node => !targetIds.has(node.id)),
+	};
+};
+
+// Картинки и текст с картинки меняет только суперадмин, в том числе возвратом версии.
+// Раздел, вернувшийся или исчезнувший целиком, не считается: удалять разделы с картинками админу можно
+export const imagesChanged = (current: ContentNode[], changed: ContentNode[]): boolean => {
+	const currentById = new Map(current.map(node => [node.id, node]));
+
+	return changed.some(node => node.image !== currentById.get(node.id)?.image || node.imageText !== currentById.get(node.id)?.imageText);
+};
+
+export const settingError = (key: SettingKey, value: string, nodes: Pick<ContentNode, 'code' | 'parentId'>[]): string | null => {
+	if (key === 'search.handoff') {
+		return value === '' || nodes.some(node => node.code === value && node.parentId !== null) ? null : 'Раздел для пункта «Нет подходящего варианта» не найден';
+	}
+
+	return value.trim() ? messageError(value) : 'Служебный текст не может быть пустым';
+};
+
+type HistoryEdit = {
+	id: number;
+	createdAt: Date;
+	actorName: string;
+	action: string;
+	details: Record<string, unknown>;
+};
+
+type HistorySnapshot = {
+	version: string;
+	createdAt: Date;
+};
+
+export const HISTORY_LIMIT = 100;
+
+// Правки из журнала и снимки, появившиеся без правки: начальное состояние и изменения через SQL.
+// Снимок правки записан в той же транзакции и с тем же временем: при сортировке правка остается выше снимка до нее.
+// Более поздняя правка с той же версией — это возврат к снимку, сам снимок при этом остается в истории
+export const mergeHistory = (edits: HistoryEdit[], snapshots: HistorySnapshot[], currentVersion: string): ContentVersionEntry[] => {
+	const firstEdit = new Map<string, number>();
+
+	for (const edit of edits) {
+		const version = String(edit.details.version);
+		firstEdit.set(version, Math.min(edit.createdAt.getTime(), firstEdit.get(version) ?? Infinity));
+	}
+
+	const entries = [
+		...edits.map(edit => ({
+			id: `edit-${edit.id}`,
+			version: String(edit.details.version),
+			time: edit.createdAt,
+			actorName: edit.actorName as string | null,
+			action: edit.action as string | null,
+			title: typeof edit.details.title === 'string' ? edit.details.title : null,
+			fields: [edit.details.fields, edit.details.keys].flatMap(list => Array.isArray(list) ? list.map(String) : []),
+		})),
+		...snapshots.filter(snapshot => snapshot.createdAt.getTime() < (firstEdit.get(snapshot.version) ?? Infinity)).map(snapshot => ({
+			id: `version-${snapshot.version}`,
+			version: snapshot.version,
+			time: snapshot.createdAt,
+			actorName: null,
+			action: null,
+			title: null,
+			fields: [],
+		})),
+	].sort((a, b) => b.time.getTime() - a.time.getTime()).slice(0, HISTORY_LIMIT);
+
+	const currentId = entries.find(entry => entry.version === currentVersion)?.id;
+
+	return entries.map(({ time, ...entry }) => ({
+		...entry,
+		createdAt: time.toISOString(),
+		current: entry.id === currentId,
+		restorable: entry.version !== currentVersion,
+	}));
+};
