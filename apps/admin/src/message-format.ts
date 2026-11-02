@@ -1,14 +1,13 @@
 // Текст сообщения хранится так, как уходит в MAX: строки через \n и HTML-теги из официального списка
-// (https://dev.max.ru/docs-api/use-cases/sending-messages/text-formatting).
+// (https://dev.max.ru/docs-api/use-cases/sending-messages/text-formatting). <mark> и <code> там есть, но приложение MAX
+// показывает их обычным текстом (проверено 2026-11-02), поэтому в редакторе их нет.
 // В редакторе это блоки: одна строка — один абзац, пустая строка — пустой абзац
 
 import type { JSONContent } from '@tiptap/core';
 import { Blockquote } from '@tiptap/extension-blockquote';
 import { Bold } from '@tiptap/extension-bold';
-import { Code } from '@tiptap/extension-code';
 import { Document } from '@tiptap/extension-document';
 import { Heading } from '@tiptap/extension-heading';
-import { Highlight } from '@tiptap/extension-highlight';
 import { Italic } from '@tiptap/extension-italic';
 import { Link } from '@tiptap/extension-link';
 import { Paragraph } from '@tiptap/extension-paragraph';
@@ -28,8 +27,6 @@ export const messageExtensions = [
 	Italic,
 	Underline,
 	Strike,
-	Highlight,
-	Code,
 	Link.configure({
 		autolink: false,
 		openOnClick: false,
@@ -39,7 +36,7 @@ export const messageExtensions = [
 // Иначе пробелы по краям строк потеряются при разборе
 export const messageParseOptions = { preserveWhitespace: 'full' } as const;
 
-const TOKEN = /<\/?(?:a|b|i|u|s|mark|code|h1|blockquote)(?: href="[^"]*")?>|\n|[^<\n]+/g;
+const TOKEN = /<\/?(?:a|b|i|u|s|h1|blockquote)(?: href="[^"]*")?>|\n|[^<\n]+/g;
 
 const tagName = (tag: string) => /^<\/?([a-z0-9]+)/.exec(tag)![1];
 
@@ -113,8 +110,6 @@ const MARK_TAGS: Record<string, string> = {
 	italic: 'i',
 	underline: 'u',
 	strike: 's',
-	highlight: 'mark',
-	code: 'code',
 };
 
 const MARK_ORDER = ['link', ...Object.keys(MARK_TAGS)];

@@ -74,8 +74,6 @@ const MARK_BUTTONS: FormatButton[] = [
 	{ key: 'italic', label: <i>К</i>, hint: 'Курсив (Ctrl+I)', toggle: editor => editor.chain().focus().toggleItalic().run() },
 	{ key: 'underline', label: <u>Ч</u>, hint: 'Подчеркнутый (Ctrl+U)', toggle: editor => editor.chain().focus().toggleUnderline().run() },
 	{ key: 'strike', label: <s>З</s>, hint: 'Зачеркнутый (Ctrl+Shift+S)', toggle: editor => editor.chain().focus().toggleStrike().run() },
-	{ key: 'highlight', label: <mark>М</mark>, hint: 'Выделение маркером (Ctrl+Shift+H)', toggle: editor => editor.chain().focus().toggleHighlight().run() },
-	{ key: 'code', label: <code>Код</code>, hint: 'Моноширинный: номера и коды, которые удобно скопировать (Ctrl+E). Другая разметка с ним не сочетается', toggle: editor => editor.chain().focus().toggleCode().run() },
 ];
 
 const Toolbar = ({ editor }: { editor: Editor; }) => {

@@ -242,21 +242,6 @@ button {
 	border-left: 3px solid var(--border);
 }
 
-.message-editor mark,
-.message-view mark,
-.editor-toolbar mark {
-	color: inherit;
-	background: #fff0a8;
-}
-
-.message-editor code,
-.message-view code {
-	padding: 0 3px;
-	font-family: ui-monospace, Consolas, monospace;
-	background: var(--bg);
-	border-radius: 3px;
-}
-
 .message-editor a,
 .message-view a {
 	color: var(--accent);

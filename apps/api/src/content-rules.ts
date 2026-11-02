@@ -7,7 +7,7 @@ export const MAX_MESSAGE_LENGTH = 4000;
 
 const MESSAGE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'tel:', 'mailto:']);
 const LINK_NODE_PROTOCOLS = new Set(['http:', 'https:']);
-const INLINE_TAGS = new Set(['b', 'i', 'u', 's', 'mark', 'code']);
+const INLINE_TAGS = new Set(['b', 'i', 'u', 's']);
 const BLOCK_TAGS = new Set(['h1', 'blockquote']);
 
 type TreeNode = {

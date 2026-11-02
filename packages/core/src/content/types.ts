@@ -12,7 +12,7 @@ export type ContentNode = {
 	type: NodeType;
 	// Название пункта в списке вариантов
 	title: string;
-	// Текст сообщения (HTML: <b>, <i>, <u>, <s>, <mark>, <code>, <a href>, <h1>, <blockquote>)
+	// Текст сообщения (HTML: <b>, <i>, <u>, <s>, <a href>, <h1>, <blockquote>)
 	text: string | null;
 	url: string | null;
 	targetId: number | null;
