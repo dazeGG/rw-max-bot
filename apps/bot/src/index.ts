@@ -38,14 +38,6 @@ await content.init(config.contentRefreshSeconds);
 logger.info('Semantic search ready', { nodes: content.get().all().length });
 
 let lease: InstanceLease | null = null;
-const control = createControlServer(apiConfig.token, async () => {
-	await content.reload();
-	logger.info('Content refreshed by internal signal', { version: content.currentVersion() });
-	return content.currentVersion();
-}, text => checkSearch(() => content.get(), search, semanticPolicy, text).catch((error: unknown) => {
-	logger.error('Search check failed', { error: errorMessage(error) });
-	throw error;
-}));
 
 const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), search, {
 	onUnrecognized: async event => {
@@ -57,7 +49,8 @@ const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), s
 	},
 }, semanticPolicy);
 
-const { bot, drain } = createMaxBot(config.botToken, engine, {
+const { bot, drain, sendSupport } = createMaxBot(config.botToken, engine, {
+	support: api,
 	getContentVersion: () => content.currentVersion(),
 	onUser: user => api.touchSubscriber(user),
 	onBlocked: userId => api.markSubscriberBlocked(userId),
@@ -70,6 +63,19 @@ const { bot, drain } = createMaxBot(config.botToken, engine, {
 			logger.error('Failed to save dialog event', { type: event.type, error: errorMessage(error) }));
 	},
 	revision: config.revision,
+});
+
+const control = createControlServer(apiConfig.token, {
+	reload: async () => {
+		await content.reload();
+		logger.info('Content refreshed by internal signal', { version: content.currentVersion() });
+		return content.currentVersion();
+	},
+	checkSearch: text => checkSearch(() => content.get(), search, semanticPolicy, text).catch((error: unknown) => {
+		logger.error('Search check failed', { error: errorMessage(error) });
+		throw error;
+	}),
+	sendSupport,
 });
 
 // Подписку на вебхук при остановке не снимаем: MAX придержит события на время перезапуска

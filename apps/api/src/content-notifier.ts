@@ -1,4 +1,4 @@
-import type { SearchCheckResult } from '@rw/core';
+import type { SearchCheckResult, SupportSendRequest, SupportSendResult } from '@rw/core';
 
 export type ContentRefreshResult = { ok: true; version: string; };
 
@@ -39,4 +39,20 @@ export const checkBotSearch = async (botControlUrl: string, token: string, text:
 	}
 
 	return await response.json() as SearchCheckResult;
+};
+
+// Отправка занимает время: бот сам загружает вложения в MAX
+export const sendToPassenger = async (botControlUrl: string, token: string, message: SupportSendRequest): Promise<SupportSendResult> => {
+	const response = await fetch(`${botControlUrl.replace(/\/+$/, '')}/internal/support/send`, {
+		method: 'POST',
+		headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+		body: JSON.stringify(message),
+		signal: AbortSignal.timeout(120_000),
+	});
+
+	if (!response.ok) {
+		throw new Error(`Bot support send responded ${response.status}`);
+	}
+
+	return await response.json() as SupportSendResult;
 };

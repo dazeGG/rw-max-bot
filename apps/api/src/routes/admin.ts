@@ -15,6 +15,7 @@ import { config } from '../config';
 import { contentRoutes } from './content';
 import { questionsRoutes } from './questions';
 import { staffRoutes } from './staff';
+import { supportRoutes } from './support';
 
 const loginBody = {
 	type: 'object',
@@ -147,5 +148,6 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 
 	app.register(contentRoutes, { prefix: '/content' });
 	app.register(questionsRoutes, { prefix: '/questions' });
+	app.register(supportRoutes, { prefix: '/support' });
 	app.register(staffRoutes);
 };

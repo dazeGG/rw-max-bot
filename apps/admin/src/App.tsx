@@ -9,12 +9,14 @@ import { ContentPage } from './ContentPage';
 import { InvitePage } from './InvitePage';
 import { LoginPage } from './LoginPage';
 import { QuestionsPage } from './QuestionsPage';
+import { SupportPage, useSupportFeed } from './SupportPage';
 import { errorText, isManager, signedOut, useMe } from './session';
 import { SettingsPage } from './SettingsPage';
 import { StaffPage } from './StaffPage';
 
 const Shell = ({ user }: { user: AdminUser; }) => {
 	const { pathname } = useLocation();
+	const counts = useSupportFeed(user);
 	const manager = isManager(user.role);
 
 	const logout = async () => {
@@ -31,7 +33,7 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 				{ key: 'staff', label: <Link to="/staff">Сотрудники</Link> },
 			]
 			: [],
-		{ key: 'support', label: <Link to="/support">Чат</Link> },
+		{ key: 'support', label: <Link to="/support">Чат{counts ? ` (${counts})` : ''}</Link> },
 	];
 
 	return (
@@ -51,7 +53,7 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 						<Route path="/staff" element={<StaffPage user={user} />} />
 					</>
 				)}
-				<Route path="/support" element={<div className="center muted">Чат поддержки появится на одном из следующих этапов</div>} />
+				<Route path="/support/:ticketId?" element={<SupportPage user={user} />} />
 				<Route path="/account" element={<AccountPage user={user} />} />
 				<Route path="*" element={<Navigate to={manager ? '/content' : '/support'} replace />} />
 			</Routes>

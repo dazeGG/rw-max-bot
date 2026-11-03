@@ -6,6 +6,8 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { AdminRole, AdminUser, AuditEntry, CreateStaffRequest, StaffInvite, StaffMember, UpdateStaffRequest } from '@rw/core';
 import { adminInvites, adminSessions, admins, auditLog, db } from '@rw/db';
 
+import { publishQueued, releaseTicketsOf } from '../support';
+import { disconnectAdmin } from '../support-hub';
 import { writeAudit } from '../audit';
 import type { Tx } from '../audit';
 import { requireAdmin, requireRole } from '../auth/guards';
@@ -189,7 +191,7 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 	app.post<{ Params: { id: number; }; }>('/staff/:id/disable', { preHandler: managers, schema: { params: idParams } }, async (request, reply) => {
 		const actor = actorOf(request);
 
-		await db.transaction(async tx => {
+		const released = await db.transaction(async tx => {
 			const target = await getManagedTarget(tx, actor, request.params.id);
 
 			assertNotSelf(actor, target.id, 'Нельзя отключить самого себя');
@@ -199,7 +201,12 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 			await endSessions(tx, target.id);
 			await tx.delete(adminInvites).where(eq(adminInvites.adminId, target.id));
 			await audit(tx, actor, 'staff.disable', target);
+
+			return releaseTicketsOf(tx, target.id);
 		});
+
+		publishQueued(released);
+		disconnectAdmin(request.params.id);
 
 		return reply.code(204).send();
 	});

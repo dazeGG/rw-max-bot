@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, index, integer, jsonb, pgTable, serial, text, timestamp, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, index, integer, jsonb, pgTable, serial, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+
+import type { SupportAttachment } from '@rw/core';
 
 // Разделы и меню бота (ТЗ п. 4.1 «Разделы и меню бота»)
 export const contentNodes = pgTable('content_nodes', {
@@ -128,6 +130,43 @@ export const dialogEvents = pgTable('dialog_events', {
 }, table => [
 	index('dialog_events_created_idx').on(table.createdAt),
 	index('dialog_events_user_idx').on(table.userId, table.createdAt),
+]);
+
+// Обращения в чат поддержки: queue — в очереди, active — в работе, closed — закрыто.
+// Открытое обращение у пассажира может быть только одно
+export const supportTickets = pgTable('support_tickets', {
+	id: serial('id').primaryKey(),
+	userId: bigint('user_id', { mode: 'number' }).notNull(),
+	status: varchar('status', { length: 10 }).notNull(),
+	assigneeId: integer('assignee_id').references(() => admins.id),
+	// passenger или staff: от этого зависят «ждет ответа» и автозакрытие
+	lastSender: varchar('last_sender', { length: 10 }),
+	lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
+	takenAt: timestamp('taken_at', { withTimezone: true }),
+	closedAt: timestamp('closed_at', { withTimezone: true }),
+	closeReason: varchar('close_reason', { length: 10 }),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+	uniqueIndex('support_tickets_open_idx').on(table.userId).where(sql`status <> 'closed'`),
+	index('support_tickets_status_idx').on(table.status, table.lastMessageAt),
+	index('support_tickets_user_idx').on(table.userId),
+]);
+
+export const supportMessages = pgTable('support_messages', {
+	id: serial('id').primaryKey(),
+	ticketId: integer('ticket_id').notNull().references(() => supportTickets.id),
+	// passenger, staff или system
+	sender: varchar('sender', { length: 10 }).notNull(),
+	adminId: integer('admin_id').references(() => admins.id),
+	text: text('text').notNull().default(''),
+	attachments: jsonb('attachments').$type<SupportAttachment[]>().notNull().default([]),
+	delivery: varchar('delivery', { length: 10 }),
+	// Номер сообщения в MAX: одно и то же обновление может прийти повторно
+	mid: text('mid'),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+	index('support_messages_ticket_idx').on(table.ticketId, table.id),
+	uniqueIndex('support_messages_mid_idx').on(table.mid).where(sql`mid is not null`),
 ]);
 
 // Обработанные вопросы пассажиров. Сами вопросы лежат в dialog_events, key — хеш нормализованной фразы:

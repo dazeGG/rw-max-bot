@@ -9,6 +9,8 @@ import { RuleError } from './errors';
 import { logger } from './logger';
 import { adminRoutes } from './routes/admin';
 import { internalRoutes } from './routes/internal';
+import { startSilenceSweep } from './support';
+import { closeStreams } from './support-hub';
 
 export const buildServer = () => {
 	// Журнал пишет winston (logs/api*.log), встроенный логгер Fastify выключен
@@ -20,6 +22,14 @@ export const buildServer = () => {
 	app.register(adminRoutes, { prefix: '/api' });
 
 	app.get('/health', async () => ({ ok: true }));
+
+	const stopSweep = startSilenceSweep();
+
+	// Иначе открытые соединения чата не дадут серверу остановиться
+	app.addHook('preClose', async () => {
+		stopSweep();
+		closeStreams();
+	});
 
 	app.setErrorHandler((error: { statusCode?: number; validation?: unknown; }, request, reply) => {
 		if (error.validation) {

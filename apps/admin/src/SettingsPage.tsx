@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Alert, App, Button, Form, Input, Modal, Select, Table, Tabs, Tag } from 'antd';
+import { Alert, App, Button, Checkbox, Form, Input, Modal, Select, Table, Tabs, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
 
@@ -24,8 +24,23 @@ const MESSAGES: { key: SettingKey; hint: string; }[] = [
 	{ key: 'text.fallback', hint: 'Бот не нашел ответа. Темы главного меню он добавит сам.' },
 	{ key: 'text.anythingElse', hint: 'Отдельное сообщение после ответа.' },
 	{ key: 'text.askMore', hint: 'Пассажир ответил, что у него есть еще вопрос. Темы главного меню бот добавит сам.' },
+	{ key: 'text.supportQueued', hint: 'Пассажир выбрал «Написать оператору» в рабочее время.' },
+	{ key: 'text.supportOffHours', hint: 'То же в нерабочее время. Вместо {next} бот подставит, когда ответят: «завтра с 8:00».' },
+	{ key: 'text.supportClosed', hint: 'Сотрудник закрыл обращение или пассажир не отвечал 24 часа.' },
+	{ key: 'text.supportCancelled', hint: 'Пассажир передумал, пока обращение ждало в очереди. Следом бот покажет главное меню.' },
 	{ key: 'text.goodbye', hint: 'Пассажир ответил, что вопросов больше нет.' },
 ];
+
+const WEEK_DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((label, index) => ({ label, value: String(index + 1) }));
+
+// В настройках дни хранятся строкой: «1,2,3»
+const DaysField = ({ value = '', onChange }: { value?: string; onChange?: (value: string) => void; }) => (
+	<Checkbox.Group
+		options={WEEK_DAYS}
+		value={value.split(',').filter(Boolean)}
+		onChange={days => onChange?.([...days].sort().join(','))}
+	/>
+);
 
 const TextsForm = ({ settings, onSaved, onRefresh }: { settings: Settings; onSaved: () => Promise<void>; onRefresh: () => void; }) => {
 	const [form] = Form.useForm<Settings>();
@@ -95,6 +110,20 @@ const TextsForm = ({ settings, onSaved, onRefresh }: { settings: Settings; onSav
 			</Form.Item>
 
 			{handoffLost && <Alert className="form-alert" type="warning" title="Раздел, куда ведет этот пункт, не найден: сейчас пункта нет. Выберите другой раздел." />}
+
+			<h3>Часы работы поддержки</h3>
+			<p className="muted">По якутскому времени. Обращения принимаются круглосуточно, в нерабочее время пассажир получит сообщение, когда ему ответят.</p>
+			<div className="support-hours">
+				<Form.Item name="support.open" label="Начало" rules={[{ pattern: /^([01]\d|2[0-3]):[0-5]\d$/, message: 'Например: 08:00' }]}>
+					<Input maxLength={5} />
+				</Form.Item>
+				<Form.Item name="support.close" label="Конец" rules={[{ pattern: /^([01]\d|2[0-3]):[0-5]\d$/, message: 'Например: 20:00' }]}>
+					<Input maxLength={5} />
+				</Form.Item>
+			</div>
+			<Form.Item name="support.days" label="Рабочие дни">
+				<DaysField />
+			</Form.Item>
 
 			{save.isError && (
 				<Alert

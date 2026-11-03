@@ -1,5 +1,6 @@
 // Правила редактора дерева: без БД, чтобы их можно было проверить на начальном контенте
 
+import { supportDaysError, supportTimeError } from '@rw/core';
 import type { ContentNode, ContentVersionEntry, NodeType, SettingKey } from '@rw/core';
 
 // Лимит текста сообщения в API MAX
@@ -155,6 +156,18 @@ export const imagesChanged = (current: ContentNode[], changed: ContentNode[]): b
 export const settingError = (key: SettingKey, value: string, nodes: Pick<ContentNode, 'code' | 'parentId'>[]): string | null => {
 	if (key === 'search.handoff') {
 		return value === '' || nodes.some(node => node.code === value && node.parentId !== null) ? null : 'Раздел для пункта «Нет подходящего варианта» не найден';
+	}
+
+	if (key === 'support.open' || key === 'support.close') {
+		return supportTimeError(value);
+	}
+
+	if (key === 'support.days') {
+		return supportDaysError(value);
+	}
+
+	if (key === 'text.supportOffHours' && !value.includes('{next}')) {
+		return 'В тексте должно быть {next}: на это место бот подставит, когда ответят';
 	}
 
 	return value.trim() ? messageError(value) : 'Служебный текст не может быть пустым';

@@ -2,14 +2,19 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 
+import { Readable } from 'node:stream';
+
 import type { FastifyPluginAsync } from 'fastify';
 
-import type { BotLeaseRequest, DialogEventRecord, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
+import type { BotLeaseRequest, DialogEventRecord, DialogUser, Session, SupportInboundRequest, UnrecognizedEvent, UploadKind } from '@rw/core';
 
 import type { BotLease } from '../bot-lease';
 import { config } from '../config';
 import { loadContent } from '../content';
 import { notifyBotContentChanged } from '../content-notifier';
+import { RuleError } from '../errors';
+import { openStatus, openTicket, receiveMessage, SUPPORT_FOLDER } from '../support';
+import { fileNameError, saveUpload } from '../uploads';
 import { getSession, markSubscriberBlocked, saveDialogEvent, saveUnrecognized, setSession, touchSubscriber } from '../store';
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
@@ -51,6 +56,31 @@ const unrecognizedBody = {
 	},
 } as const;
 
+const inboundBody = {
+	type: 'object',
+	required: ['userId', 'text', 'attachments', 'start'],
+	properties: {
+		userId: { type: 'integer' },
+		text: { type: 'string', maxLength: 8000 },
+		mid: { type: ['string', 'null'] },
+		attachments: {
+			type: 'array',
+			maxItems: 20,
+			items: {
+				type: 'object',
+				required: ['kind', 'path', 'name'],
+				properties: {
+					kind: { type: 'string', enum: ['image', 'file', 'unavailable'] },
+					path: { type: 'string', maxLength: 300 },
+					name: { type: 'string', maxLength: 300 },
+					size: { type: 'integer' },
+				},
+			},
+		},
+		start: { type: 'boolean' },
+	},
+} as const;
+
 // Тип события не ограничен списком, data и raw — любые объекты: журнал расширяется без правок API
 const dialogEventBody = {
 	type: 'object',
@@ -81,6 +111,32 @@ export const internalRoutes = (lease: BotLease): FastifyPluginAsync => async app
 		if (!timingSafeEqual(actual, expectedToken)) {
 			return reply.code(401).send({ error: 'Unauthorized' });
 		}
+	});
+
+	// Вложения пассажира: файл сразу пишется на диск и не копится в памяти
+	app.addContentTypeParser('application/octet-stream', (_request, payload, done) => done(null, payload));
+
+	app.post<{ Body: DialogUser; }>('/support/tickets', { schema: { body: subscriberBody } }, async request => ({ text: await openTicket(request.body) }));
+
+	app.get<{ Params: { userId: number; }; }>('/support/open/:userId', { schema: { params: userIdParams } }, async request => ({ status: await openStatus(request.params.userId) }));
+
+	app.post<{ Body: SupportInboundRequest; }>('/support/inbound', { schema: { body: inboundBody } }, request => receiveMessage(request.body));
+
+	app.post<{ Querystring: { kind: UploadKind; name: string; }; }>('/support/files', async request => {
+		const { kind, name } = request.query;
+
+		if (!(request.body instanceof Readable) || !['image', 'file'].includes(kind) || !name) {
+			throw new RuleError(400, 'Неверный запрос');
+		}
+
+		// Пассажир может прислать что угодно: сотрудникам показываем только разрешенные типы
+		const error = kind === 'file' ? fileNameError(name) : null;
+
+		if (error) {
+			throw new RuleError(400, error);
+		}
+
+		return saveUpload(kind, name, request.body, undefined, SUPPORT_FOLDER);
 	});
 
 	app.get('/content', async (request, reply) => {

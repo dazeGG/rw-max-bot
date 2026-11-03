@@ -123,6 +123,112 @@ export type SearchCheckResult =
 	| { kind: 'none'; }
 	| { kind: 'service'; };
 
+export type SupportStatus = 'queue' | 'active' | 'closed';
+
+export type SupportTab = 'queue' | 'mine' | 'closed' | 'all';
+
+// unavailable — пассажир прислал то, что нельзя показать в чате: видео, стикер, запрещенный тип файла
+export type SupportAttachment = {
+	kind: 'image' | 'file' | 'unavailable';
+	path: string;
+	name: string;
+	size?: number;
+};
+
+export type SupportTicketSummary = {
+	id: number;
+	status: SupportStatus;
+	passenger: string;
+	assigneeId: number | null;
+	assigneeName: string | null;
+	preview: string | null;
+	waiting: boolean;
+	createdAt: string;
+	lastMessageAt: string;
+	closedAt: string | null;
+};
+
+// delivery: pending — отправляется, failed — пассажир не получил. Только у сообщений сотрудников
+export type SupportMessage = {
+	id: number;
+	sender: 'passenger' | 'staff' | 'system';
+	authorName: string | null;
+	text: string;
+	attachments: SupportAttachment[];
+	delivery: 'pending' | 'sent' | 'failed' | null;
+	createdAt: string;
+};
+
+export type SupportHistoryEntry = {
+	question: string | null;
+	answer: string;
+	at: string;
+};
+
+export type SupportTicketDetail = SupportTicketSummary & {
+	messages: SupportMessage[];
+	card: {
+		userId: number;
+		name: string;
+		username: string | null;
+		firstSeenAt: string | null;
+		isBlocked: boolean;
+	};
+	past: SupportTicketSummary[];
+	history: SupportHistoryEntry[];
+};
+
+export type SupportCounts = {
+	queue: number;
+	mine: number;
+	waiting: number;
+};
+
+export type SupportReplyRequest = {
+	text: string;
+	attachments: SupportAttachment[];
+};
+
+export type SupportTransferRequest = {
+	adminId: number;
+};
+
+export type SupportStaffMember = {
+	id: number;
+	fullName: string;
+};
+
+// В потоке нет ни текста, ни имен: данные браузер читает обычным запросом, где проверяются вход и роль
+export type SupportEvent = {
+	ticketId: number;
+	kind: 'queued' | 'message' | 'changed';
+	assigneeId: number | null;
+};
+
+export type SupportInboundRequest = {
+	userId: number;
+	text: string;
+	mid: string | null;
+	attachments: SupportAttachment[];
+	// Пассажир заново запустил бота
+	start: boolean;
+};
+
+// none — обращения нет, отвечает бот; stored — передано сотрудникам; cancelled — пассажир передумал, снова отвечает бот
+export type SupportInboundResult =
+	| { action: 'none' | 'stored'; }
+	| { action: 'cancelled'; text: string; };
+
+export type SupportSendRequest = {
+	userId: number;
+	text: string;
+	attachments: SupportAttachment[];
+	// Служебный текст из настроек: в нем уже есть разметка, и подпись поддержки ему не нужна
+	notice?: boolean;
+};
+
+export type SupportSendResult = { ok: true; } | { ok: false; error: string; };
+
 export type ContentApplied = {
 	version: string;
 };

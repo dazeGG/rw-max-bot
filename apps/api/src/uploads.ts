@@ -76,8 +76,8 @@ export const assertUploadSize = (kind: UploadKind, size: number) => {
 };
 
 // Пишем во временный файл рядом с итоговым: в том же томе переименование атомарно, и бот не увидит половину файла
-export const saveUpload = async (kind: UploadKind, name: string, source: Readable, root = MEDIA_DIR): Promise<UploadResult> => {
-	const dir = path.join(root, UPLOADS_DIR);
+export const saveUpload = async (kind: UploadKind, name: string, source: Readable, root = MEDIA_DIR, folder = UPLOADS_DIR): Promise<UploadResult> => {
+	const dir = path.join(root, folder);
 	const temporary = path.join(dir, `.tmp-${randomBytes(8).toString('hex')}`);
 	const hash = createHash('sha256');
 	let size = 0;
@@ -116,7 +116,7 @@ export const saveUpload = async (kind: UploadKind, name: string, source: Readabl
 			throw new RuleError(400, 'Это не картинка: можно загрузить JPG, PNG или GIF');
 		}
 
-		const relative = `${UPLOADS_DIR}/${hash.digest('hex')}.${extension}`;
+		const relative = `${folder}/${hash.digest('hex')}.${extension}`;
 
 		await fs.rename(temporary, path.join(root, relative));
 

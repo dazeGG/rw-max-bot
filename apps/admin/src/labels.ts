@@ -11,6 +11,13 @@ export const SETTING_LABELS: Record<SettingKey, string> = {
 	'text.goodbye': 'Прощание',
 	'text.handoff': 'Пункт «Нет подходящего варианта»',
 	'search.handoff': 'Куда ведет пункт «Нет подходящего варианта»',
+	'text.supportQueued': 'Пассажира передали в поддержку',
+	'text.supportOffHours': 'Поддержка сейчас не работает',
+	'text.supportClosed': 'Обращение закрыто',
+	'text.supportCancelled': 'Пассажир отменил обращение',
+	'support.open': 'Начало работы поддержки',
+	'support.close': 'Конец работы поддержки',
+	'support.days': 'Рабочие дни поддержки',
 };
 
 export const ACTION_LABELS: Record<string, string> = {

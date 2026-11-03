@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
-import { DEFAULT_SETTINGS, ROOT_CODE } from '@rw/core';
+import { DEFAULT_SETTINGS, OPERATOR_CODE, OPERATOR_MENU_CODE, ROOT_CODE, supportHoursError } from '@rw/core';
 import type { AdminContentNode, AdminUser, ContentApplied, ContentNode, ContentVersionDiff, ContentVersionEntry, CreateNodeRequest, MoveNodeRequest, Settings, UpdateNodeRequest, UpdateSettingsRequest, UploadKind, UploadResult } from '@rw/core';
 import { admins, auditLog, contentNodes, contentVersions, db, settings } from '@rw/db';
 import { errorMessage } from '@rw/runtime';
@@ -144,6 +144,12 @@ const loadVersion = async (reader: Pick<typeof db, 'select'>, version: string) =
 // Служебные тексты, которые отличаются от версии. В старых снимках новых ключей нет: такие тексты не трогаем
 const changedSettings = (current: Settings, target: Settings) =>
 	(Object.keys(current) as (keyof Settings)[]).filter(key => key in target && target[key] !== current[key]);
+
+// В старых версиях контента нет входа в чат: возврат к ним не должен его убирать
+const keepOperator = <T extends { removed: ContentNode[]; }>(diff: T): T => ({
+	...diff,
+	removed: diff.removed.filter(node => node.code !== OPERATOR_CODE && node.code !== OPERATOR_MENU_CODE),
+});
 
 const assertRule = (error: string | null) => {
 	if (error) {
@@ -356,6 +362,10 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 			const removed = subtreeIds(nodes, id);
 			const handoff = await handoffCode(tx);
 
+			if (nodes.some(node => removed.has(node.id) && node.code === OPERATOR_CODE)) {
+				throw new RuleError(409, 'Здесь находится пункт «Написать оператору», без него пассажиры не попадут в чат. Его можно выключить');
+			}
+
 			if (nodes.some(node => removed.has(node.id) && node.code === handoff)) {
 				throw new RuleError(409, 'На этот раздел ведет пункт «Нет подходящего варианта». Сначала смените его в настройках или выключите раздел');
 			}
@@ -423,6 +433,10 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 				assertRule(settingError(change.key, change.value, nodes));
 			}
 
+			if (real.some(change => change.key === 'support.open' || change.key === 'support.close')) {
+				assertRule(supportHoursError({ ...current, ...Object.fromEntries(real.map(change => [change.key, change.value])) }));
+			}
+
 			for (const { key, value } of real) {
 				await tx.insert(settings).values({ key, value })
 					.onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: sql`now()` } });
@@ -437,7 +451,9 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 	});
 
 	app.get('/versions', async (): Promise<ContentVersionEntry[]> => {
-		const [edits, snapshots, current] = await Promise.all([
+		// Сначала текущая версия: после правки в обход админки ее снимок записывается при этом чтении
+		const current = await loadContent();
+		const [edits, snapshots] = await Promise.all([
 			db.select({
 				id: auditLog.id,
 				createdAt: auditLog.createdAt,
@@ -454,7 +470,6 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 				.from(contentVersions)
 				.orderBy(desc(contentVersions.createdAt))
 				.limit(HISTORY_LIMIT),
-			loadContent(),
 		]);
 
 		return mergeHistory(edits, snapshots, current.version);
@@ -463,7 +478,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 	app.get<{ Params: { version: string; }; }>('/versions/:version', { schema: { params: versionParams } }, async (request): Promise<ContentVersionDiff> => {
 		const target = await loadVersion(db, request.params.version);
 		const current = await loadContent();
-		const diff = diffContent(current.nodes, target.nodes);
+		const diff = keepOperator(diffContent(current.nodes, target.nodes));
 
 		return {
 			changed: diff.changed.map(node => node.title),
@@ -483,7 +498,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 			const target = await loadVersion(tx, version);
 			const current = (await allNodes(tx)).map(toContentNode);
 			const currentSettings = await loadSettings(tx);
-			const { changed, returned, removed } = diffContent(current, target.nodes);
+			const { changed, returned, removed } = keepOperator(diffContent(current, target.nodes));
 			const changedKeys = changedSettings(currentSettings, target.settings);
 
 			if (!target.nodes.some(node => node.code === ROOT_CODE && node.isActive)) {

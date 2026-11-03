@@ -1,7 +1,8 @@
-import type { BotLeaseRequest, ContentSnapshot, DialogEventRecord, DialogUser, Session, UnrecognizedEvent } from '@rw/core';
+import type { BotLeaseRequest, ContentSnapshot, DialogEventRecord, DialogUser, Session, SupportInboundRequest, SupportInboundResult, SupportStatus, UnrecognizedEvent, UploadKind, UploadResult } from '@rw/core';
 
 // Зависший API не должен задерживать ответ пользователю дольше этого
 const REQUEST_TIMEOUT_MS = 5_000;
+const UPLOAD_TIMEOUT_MS = 120_000;
 
 export class ApiRequestError extends Error {
 	constructor (readonly status: number, path: string) {
@@ -56,6 +57,35 @@ export class ApiClient {
 
 	async markSubscriberBlocked (userId: number): Promise<void> {
 		await this.request('POST', `/subscribers/${userId}/blocked`);
+	}
+
+	async openSupportTicket (user: DialogUser): Promise<string> {
+		return (await (await this.request('POST', '/support/tickets', { body: user })).json() as { text: string; }).text;
+	}
+
+	async supportStatus (userId: number): Promise<SupportStatus | null> {
+		return (await (await this.request('GET', `/support/open/${userId}`)).json() as { status: SupportStatus | null; }).status;
+	}
+
+	async sendSupportInbound (message: SupportInboundRequest): Promise<SupportInboundResult> {
+		return await (await this.request('POST', '/support/inbound', { body: message })).json() as SupportInboundResult;
+	}
+
+	// Вложение пассажира не копится в памяти: идет потоком из MAX в API
+	async uploadSupportFile (kind: UploadKind, name: string, body: ReadableStream<Uint8Array>): Promise<UploadResult> {
+		const response = await fetch(`${this.baseUrl}/internal/support/files?kind=${kind}&name=${encodeURIComponent(name)}`, {
+			method: 'POST',
+			headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/octet-stream' },
+			body,
+			duplex: 'half',
+			signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+		} as RequestInit);
+
+		if (!response.ok) {
+			throw new ApiRequestError(response.status, '/support/files');
+		}
+
+		return await response.json() as UploadResult;
 	}
 
 	async saveUnrecognized (event: UnrecognizedEvent): Promise<void> {

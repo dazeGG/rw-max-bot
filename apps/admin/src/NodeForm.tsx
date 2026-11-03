@@ -205,6 +205,9 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 	return (
 		<div className="node-editor">
 			<Form form={form} className="node-form" layout="vertical" initialValues={initial} onFinish={submit}>
+				{node.code === 'operator' && (
+					<Alert className="form-alert" type="info" title="Этот пункт передает пассажира в чат поддержки. Поиск его не находит, текст раздела пассажир не увидит. Такой же пункт есть в главном меню: он работает, только если включены оба." />
+				)}
 				<p className="muted">
 					Код: <code>{node.code}</code>
 					{node.updatedBy && ` · изменил(а) ${node.updatedBy}, ${new Date(node.updatedAt).toLocaleString('ru-RU')}`}

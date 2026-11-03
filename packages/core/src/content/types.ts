@@ -38,7 +38,14 @@ export type SettingKey =
 	| 'text.askMore'
 	| 'text.goodbye'
 	| 'text.handoff'
-	| 'search.handoff';
+	| 'search.handoff'
+	| 'text.supportQueued'
+	| 'text.supportOffHours'
+	| 'text.supportClosed'
+	| 'text.supportCancelled'
+	| 'support.open'
+	| 'support.close'
+	| 'support.days';
 
 export type Settings = Record<SettingKey, string>;
 
@@ -52,6 +59,15 @@ export const DEFAULT_SETTINGS: Settings = {
 	// Последний пункт каждого уточнения поиска и код раздела, куда он ведёт; пустой код — пункта нет
 	'text.handoff': 'Нет подходящего варианта — служба поддержки',
 	'search.handoff': 'support',
+	// Чат поддержки. {next} — когда ответят: «завтра с 8:00»
+	'text.supportQueued': 'Передал Ваше обращение в службу поддержки. Напишите свой вопрос, оператор скоро ответит.\n\nЧтобы вернуться к боту, напишите «отмена».',
+	'text.supportOffHours': 'Сейчас служба поддержки не работает. Ответим {next} по якутскому времени. Срочные вопросы — по телефону 8 800 550 06 20.\n\nМожете написать свой вопрос сейчас. Чтобы вернуться к боту, напишите «отмена».',
+	'text.supportClosed': 'Обращение закрыто. Если появятся вопросы, просто напишите их сюда.',
+	'text.supportCancelled': 'Обращение отменено.',
+	// Часы работы по якутскому времени, дни недели: понедельник — 1
+	'support.open': '08:00',
+	'support.close': '20:00',
+	'support.days': '1,2,3,4,5,6,7',
 };
 
 export const ROOT_CODE = 'root';

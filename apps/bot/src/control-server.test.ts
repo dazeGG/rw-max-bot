@@ -2,7 +2,7 @@ import type { AddressInfo } from 'node:net';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { SearchCheckResult } from '@rw/core';
+import type { SearchCheckResult, SupportSendResult } from '@rw/core';
 
 import { createControlServer } from './control-server';
 
@@ -14,15 +14,30 @@ describe('internal content refresh server', () => {
 			server.closeAllConnections();
 		})));
 	});
-	const setup = async (reload = vi.fn(async () => 'version-2'), check = vi.fn(async (): Promise<SearchCheckResult> => ({ kind: 'none' }))) => {
-		const server = createControlServer('test-secret', reload, check);
+	const setup = async (reload = vi.fn(async () => 'version-2'), check = vi.fn(async (): Promise<SearchCheckResult> => ({ kind: 'none' })), send = vi.fn(async (): Promise<SupportSendResult> => ({ ok: true }))) => {
+		const server = createControlServer('test-secret', { reload, checkSearch: check, sendSupport: send });
 		servers.push(server);
 		await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
 		const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/internal/content/refresh`;
-		return { url, reload, check, checkUrl: url.replace('content/refresh', 'search/check') };
+		return { url, reload, check, send, checkUrl: url.replace('content/refresh', 'search/check'), sendUrl: url.replace('content/refresh', 'support/send') };
 	};
 	const post = (url: string, body: string, authorization = 'Bearer test-secret') => fetch(url, { method: 'POST', headers: { authorization }, body });
 
+	it('sends a support message and reports the result', async () => {
+		const message = { userId: 7, text: 'Ответ', attachments: [] };
+		const { sendUrl, send } = await setup(undefined, undefined, vi.fn(async (): Promise<SupportSendResult> => ({ ok: false, error: 'blocked' })));
+		const response = await post(sendUrl, JSON.stringify(message));
+		expect(await response.json()).toEqual({ ok: false, error: 'blocked' });
+		expect(send).toHaveBeenCalledExactlyOnceWith(message);
+	});
+	it('does not send a support message without auth or with a bad body', async () => {
+		const { sendUrl, send } = await setup();
+		expect((await post(sendUrl, JSON.stringify({ userId: 7, text: 'x', attachments: [] }), 'Bearer wrong')).status).toBe(401);
+		for (const body of ['', 'не json', '{}', JSON.stringify({ userId: 'x', text: 'a', attachments: [] }), JSON.stringify({ userId: 7, text: 'a' })]) {
+			expect((await post(sendUrl, body)).status, body).toBe(400);
+		}
+		expect(send).not.toHaveBeenCalled();
+	});
 	it('answers a search check and asks only for the given text', async () => {
 		const { checkUrl, check } = await setup(undefined, vi.fn(async (): Promise<SearchCheckResult> => ({ kind: 'answer', node: { id: 7, title: 'Возврат' } })));
 		const response = await post(checkUrl, JSON.stringify({ text: 'как вернуть билет' }));

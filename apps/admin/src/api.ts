@@ -18,6 +18,12 @@ import type {
 	PassengerQuestion,
 	QuestionReviewRequest,
 	SearchCheckResult,
+	SupportAttachment,
+	SupportCounts,
+	SupportStaffMember,
+	SupportTab,
+	SupportTicketDetail,
+	SupportTicketSummary,
 	Settings,
 	StaffInvite,
 	StaffMember,
@@ -54,6 +60,8 @@ const request = async <T>(path: string, init: { method?: string; body?: unknown;
 	body: init.body === undefined ? undefined : JSON.stringify(init.body),
 }));
 
+export const supportFileUrl = (path: string) => `/api/support/files/${path.split('/').map(encodeURIComponent).join('/')}`;
+
 export const mediaUrl = (path: string) => `/api/content/media/${path.split('/').map(encodeURIComponent).join('/')}`;
 
 export const api = {
@@ -70,6 +78,21 @@ export const api = {
 	moveNode: (id: number, body: MoveNodeRequest) => request<void>(`/content/nodes/${id}/move`, { method: 'POST', body }),
 	deleteNode: (id: number) => request<void>(`/content/nodes/${id}`, { method: 'DELETE' }),
 	applyContent: () => request<ContentApplied>('/content/apply', { method: 'POST' }),
+	supportCounts: () => request<SupportCounts>('/support/counts'),
+	supportTickets: (tab: SupportTab) => request<SupportTicketSummary[]>(`/support/tickets?tab=${tab}`),
+	supportTicket: (id: number) => request<SupportTicketDetail>(`/support/tickets/${id}`),
+	supportStaff: () => request<SupportStaffMember[]>('/support/staff'),
+	takeTicket: (id: number) => request<void>(`/support/tickets/${id}/take`, { method: 'POST' }),
+	releaseTicket: (id: number) => request<void>(`/support/tickets/${id}/release`, { method: 'POST' }),
+	releaseMyTickets: () => request<{ released: number; }>('/support/tickets/release-mine', { method: 'POST' }),
+	transferTicket: (id: number, adminId: number) => request<void>(`/support/tickets/${id}/transfer`, { method: 'POST', body: { adminId } }),
+	closeTicket: (id: number) => request<void>(`/support/tickets/${id}/close`, { method: 'POST' }),
+	replyToTicket: (id: number, text: string, attachments: SupportAttachment[]) => request<void>(`/support/tickets/${id}/messages`, { method: 'POST', body: { text, attachments } }),
+	uploadSupportFile: async (kind: UploadKind, file: File) => parse<UploadResult>(await fetch(`/api/support/uploads?kind=${kind}&name=${encodeURIComponent(file.name)}`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/octet-stream' },
+		body: file,
+	})),
 	questions: () => request<PassengerQuestion[]>('/questions'),
 	reviewQuestion: (body: QuestionReviewRequest) => request<void>('/questions/reviews', { method: 'POST', body }),
 	undoQuestionReview: (key: string) => request<void>(`/questions/reviews/${key}`, { method: 'DELETE' }),

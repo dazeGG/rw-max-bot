@@ -4,6 +4,7 @@ import type { ContentNode } from '../content/types';
 import { isFinal, nodeReplies, renderNode, withOptions } from './reply';
 import { DEFAULT_SEARCH_POLICY } from './search';
 import type { Candidate, DialogSearch, SearchPolicy } from './search';
+import { OPERATOR_CODE } from './support';
 import { normalize, stripGreetingRaw } from './text';
 import type { DialogEventDetails, DialogEvents, DialogEventType, DialogInput, DialogResult, DialogUser, Reply, Session, SessionStore } from './types';
 
@@ -108,7 +109,9 @@ export class DialogEngine {
 			const option = tree.get(session.choices?.[number - 1]);
 
 			if (option) {
-				return done('option', tree.resolve(option), await this.open(user, tree, option), { option: number });
+				return tree.resolve(option).code === OPERATOR_CODE
+					? this.toOperator(user, tree, done)
+					: done('option', tree.resolve(option), await this.open(user, tree, option), { option: number });
 			}
 
 			details.unmatchedOption = number;
@@ -118,6 +121,10 @@ export class DialogEngine {
 		// каждое слово реплики должно быть в названии варианта, поэтому новый вопрос сюда не попадает.
 		// Главное меню — список тем, а не заданный вопрос: там текст ищется глобально
 		const labelled = number === null && !this.isRootMenu(tree, current, shown) ? this.optionsByWords(shown, rest) : [];
+
+		if (labelled.length === 1 && tree.resolve(labelled[0]).code === OPERATOR_CODE) {
+			return this.toOperator(user, tree, done);
+		}
 
 		if (labelled.length === 1) {
 			return done('option', tree.resolve(labelled[0]), [...greetingReplies, ...await this.open(user, tree, labelled[0])], { labelMatch: true });
@@ -161,13 +168,20 @@ export class DialogEngine {
 		}
 	}
 
+	// Текст ответа и само обращение — дело транспорта: движок не знает ни об очереди, ни о часах работы
+	private async toOperator (user: DialogUser, tree: ContentTree, done: (type: DialogEventType, node: ContentNode, replies: Reply[]) => DialogResult): Promise<DialogResult> {
+		await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
+		return done('operator', tree.root, []);
+	}
+
 	private result (type: DialogEventType, node: ContentNode, text: string | null, replies: Reply[], details: DialogEventDetails = {}): DialogResult {
 		return { replies, event: { type, nodeId: node.id, nodeCode: node.code, text, details } };
 	}
 
 	// Navigation position is not search context. Only explicitly displayed options can be selected.
 	private async choose (tree: ContentTree, session: Session, text: string): Promise<{ choice: Choice; ranked: Candidate[]; }> {
-		const knowledge = tree.all().filter(node => node.id !== tree.root.id &&
+		// Пункт оператора поиск не находит: в очередь попадают только те, кто выбрал его сознательно
+		const knowledge = tree.all().filter(node => node.id !== tree.root.id && node.code !== OPERATOR_CODE &&
 			(node.type === 'section' || (node.type === 'link' && Boolean(node.text?.trim()))));
 		const run = async (nodes: ContentNode[], mode?: 'options') => {
 			const allowed = new Set(nodes.map(node => node.id));

@@ -41,8 +41,8 @@ export interface DialogEvents {
 // Как бот обработал сообщение — для статистики:
 // start — стартовое сообщение; answer — раздел найден по тексту; option — выбран номер варианта;
 // clarify — «Уточните, пожалуйста…»; unrecognized — не понял; back, menu — навигация;
-// more, goodbye — «да» или «нет» на «Могу ли я ещё Вам чем-то помочь?»
-export type DialogEventType = 'start' | 'answer' | 'option' | 'clarify' | 'unrecognized' | 'back' | 'menu' | 'more' | 'goodbye';
+// more, goodbye — «да» или «нет» на «Могу ли я ещё Вам чем-то помочь?»; operator — пассажир выбрал «Написать оператору»
+export type DialogEventType = 'start' | 'answer' | 'option' | 'clarify' | 'unrecognized' | 'back' | 'menu' | 'more' | 'goodbye' | 'operator';
 
 // Подробности разбора сообщения. Состав можно расширять: в БД они лежат в jsonb
 export type DialogEventDetails = {

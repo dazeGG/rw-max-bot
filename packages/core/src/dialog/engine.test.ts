@@ -375,20 +375,57 @@ describe('протокольная навигация не требует мод
 	});
 
 	it('да и нет после конечного ответа не вызывают модель', async () => {
-		await at('support');
+		await at('faq-storage');
 		const more = await say('да');
 		expect(more.event.type).toBe('more');
 		expect(more.replies[0].text).toContain(SEED_SETTINGS['text.askMore']);
-		await at('support');
+		await at('faq-storage');
 		expect((await say('нет, спасибо!')).replies).toEqual([{ text: SEED_SETTINGS['text.goodbye'] }]);
 		expect(rank).not.toHaveBeenCalled();
 	});
 
 	it('новый вопрос после конечного ответа всё ещё передаётся модели', async () => {
-		await at('support');
+		await at('faq-storage');
 		rank.mockResolvedValue(candidates(['buy', 0.9]));
 		expect((await say('где купить билет')).event.nodeCode).toBe('buy');
 		expect(rank).toHaveBeenCalledOnce();
+	});
+});
+
+describe('вход в чат поддержки', () => {
+	it('пункт есть в разделе поддержки и в главном меню', async () => {
+		expect(options((await say('меню')).replies[0].text)).toContain('Написать оператору');
+		await at('support', ['operator']);
+		expect(options(engine.render(tree, node('support')).text)).toContain('Написать оператору');
+	});
+
+	it('пункт раздела передает оператору и по номеру, и словами', async () => {
+		const support = node('support');
+
+		for (const text of ['1', 'Написать оператору']) {
+			await sessions.set(user.id, { nodeId: support.id, choices: [node('operator').id] });
+			const { event, replies } = await say(text);
+
+			expect(event).toMatchObject({ type: 'operator' });
+			expect(replies).toEqual([]);
+			expect(await currentCode()).toBe('root');
+		}
+		expect(rank).not.toHaveBeenCalled();
+	});
+
+	it('пункт главного меню передает оператору', async () => {
+		const { replies } = await say('меню');
+		const number = options(replies[0].text).indexOf('Написать оператору') + 1;
+
+		expect((await say(String(number))).event.type).toBe('operator');
+	});
+
+	it('поиск не предлагает пункт оператора как ответ', async () => {
+		await say('вопрос');
+		const codes = rank.mock.calls[0][1].map(item => item.code);
+
+		expect(codes).not.toContain('operator');
+		expect(codes).not.toContain('operator-menu');
 	});
 });
 
@@ -399,18 +436,18 @@ describe('рендеринг и целостность дерева', () => {
 	});
 
 	it('файл и экранированный заголовок сохраняются', () => {
-		const changed = flattenSeed().map(item => item.code === 'support'
+		const changed = flattenSeed().map(item => item.code === 'faq-storage'
 			? { ...item, title: 'Багаж < 10 кг & A', text: null, file: 'files/support.pdf', fileName: 'Контакты.pdf' }
 			: item);
 		const localTree = new ContentTree(changed, SEED_SETTINGS);
-		const reply = engine.render(localTree, localTree.getByCode('support')!);
+		const reply = engine.render(localTree, localTree.getByCode('faq-storage')!);
 
 		expect(reply.text).toBe('<b>Багаж &lt; 10 кг &amp; A</b>');
 		expect(reply.file).toEqual({ path: 'files/support.pdf', name: 'Контакты.pdf' });
 	});
 
 	it('конечный ответ сопровождается вопросом о дополнительной помощи', async () => {
-		rank.mockResolvedValue(candidates(['support', 0.9]));
+		rank.mockResolvedValue(candidates(['faq-storage', 0.9]));
 		expect((await say('вопрос')).replies.at(-1)?.text).toBe(SEED_SETTINGS['text.anythingElse']);
 	});
 

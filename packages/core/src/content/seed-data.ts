@@ -1,6 +1,8 @@
 // Начальный контент бота: перенесен из Telegram-бота rw-bot.
 // В БД попадает командой `pnpm db:seed`, дальше редактируется через веб-панель.
 
+import { OPERATOR_CODE, OPERATOR_MENU_CODE } from '../dialog/support';
+
 import { DEFAULT_SETTINGS, ROOT_CODE } from './types';
 import type { ContentNode, NodeType, Settings } from './types';
 
@@ -557,6 +559,7 @@ export const SEED_TREE: SeedNode = {
 				'поддержка', 'служба поддержки', 'телефон', 'контакты', 'позвонить', 'номер телефона', 'горячая линия',
 				'связаться', 'оператор', 'живой человек', 'справочная',
 			],
+			children: [{ code: OPERATOR_CODE, title: 'Написать оператору' }],
 		},
 		{
 			code: 'question',
@@ -565,6 +568,7 @@ export const SEED_TREE: SeedNode = {
 			synonyms: ['задать вопрос', 'обратная связь', 'оставить заявку', 'написать обращение', 'жалоба', 'предложение', 'пожаловаться'],
 		},
 		// Уточняющий вопрос, как в чат-боте РЖД: в списке тем не показывается, срабатывает на текст
+		goto(OPERATOR_MENU_CODE, 'Написать оператору', OPERATOR_CODE),
 		{
 			code: 'refund',
 			title: 'Возврат билета',

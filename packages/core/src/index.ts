@@ -6,5 +6,6 @@ export * from './dialog/check';
 export * from './dialog/engine';
 export * from './dialog/search';
 export * from './dialog/memory-sessions';
+export * from './dialog/support';
 export * from './dialog/text';
 export * from './dialog/types';
