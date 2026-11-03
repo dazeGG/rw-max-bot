@@ -26,7 +26,8 @@ COPY media media
 # REVISION (выложенный коммит) пишет deploy.sh; package.json — чтобы COPY не падал, если файла нет
 COPY package.json REVISION* ./
 # /models — том с весами E5 и реранкера: скачиваются при первом запуске бота и переживают выкладки
-RUN mkdir -p logs /models && chown node:node logs /models
+# media/uploads — том с картинками и файлами разделов: создается с этим владельцем, поэтому API сможет в него писать
+RUN mkdir -p logs /models media/uploads && chown node:node logs /models media/uploads
 ENV NODE_ENV=production
 USER node
 

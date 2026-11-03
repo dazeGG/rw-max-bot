@@ -60,9 +60,21 @@ export type UpdateNodeRequest = {
 	url?: string | null;
 	targetId?: number | null;
 	synonyms?: string[];
+	image?: string | null;
 	imageText?: string | null;
+	file?: string | null;
+	fileName?: string | null;
 	isActive?: boolean;
 	isHidden?: boolean;
+};
+
+export type UploadKind = 'image' | 'file';
+
+// path — куда лег файл на сервере: его указывают в разделе при сохранении
+export type UploadResult = {
+	path: string;
+	name: string;
+	size: number;
 };
 
 export type MoveNodeRequest = {

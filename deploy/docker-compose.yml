@@ -46,6 +46,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - logs:/app/logs
+      - uploads:/app/media/uploads
 
   bot:
     build:
@@ -81,6 +82,8 @@ services:
     volumes:
       - logs:/app/logs
       - models:/models
+      # Файлы загружает API, бот их только отправляет
+      - uploads:/app/media/uploads:ro
 
   web:
     build:
@@ -104,5 +107,6 @@ volumes:
   pgdata:
   logs:
   models:
+  uploads:
   caddy_data:
   caddy_config:

@@ -5,7 +5,8 @@ import { useNavigate } from 'react-router';
 
 import type { AdminContentNode, AdminUser, Settings, UpdateNodeRequest } from '@rw/core';
 
-import { api, ConflictError } from './api';
+import { api, ConflictError, mediaUrl } from './api';
+import { FileField, ImageField } from './attachments';
 import { pathOf, previewReplies, subtreeOf } from './content-tree';
 import type { Tree } from './content-tree';
 import { MessageEditor, MessageView } from './MessageEditor';
@@ -21,7 +22,10 @@ type Values = {
 	url: string;
 	targetId: number | null;
 	synonyms: string[];
+	image: string | null;
 	imageText: string;
+	file: string | null;
+	fileName: string | null;
 	isActive: boolean;
 	isHidden: boolean;
 };
@@ -32,7 +36,10 @@ const toValues = (node: AdminContentNode): Values => ({
 	url: node.url ?? '',
 	targetId: node.targetId,
 	synonyms: node.synonyms,
+	image: node.image,
 	imageText: node.imageText ?? '',
+	file: node.file,
+	fileName: node.fileName,
 	isActive: node.isActive,
 	isHidden: node.isHidden,
 });
@@ -44,6 +51,9 @@ const Preview = ({ tree, settings, node, values }: { tree: Tree; settings: Setti
 		text: values.text.trim() ? values.text : null,
 		url: values.url || null,
 		targetId: values.targetId,
+		image: values.image,
+		file: values.file,
+		fileName: values.fileName,
 		isHidden: values.isHidden,
 	}), [tree, settings, node, values]);
 
@@ -57,7 +67,7 @@ const Preview = ({ tree, settings, node, values }: { tree: Tree; settings: Setti
 			{main && (
 				<>
 					<div className="bubble">
-						{main.image && <div className="attachment">Картинка</div>}
+						{main.image && <img className="attachment-image" src={mediaUrl(main.image)} alt="" />}
 						<MessageView text={main.text} />
 						{main.file && <div className="attachment">Файл: {main.file.name}</div>}
 					</div>
@@ -167,8 +177,8 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 			synonyms: current.synonyms,
 			isActive: current.isActive,
 			isHidden: current.isHidden,
-			...node.type === 'section' ? { text: current.text } : {},
-			...node.type === 'section' && superadmin ? { imageText: current.imageText } : {},
+			...node.type === 'section' ? { text: current.text, file: current.file, fileName: current.fileName } : {},
+			...node.type === 'section' && superadmin ? { image: current.image, imageText: current.imageText } : {},
 			...node.type === 'link' ? { url: current.url } : {},
 			...node.type === 'goto' ? { targetId: current.targetId } : {},
 		});
@@ -214,14 +224,30 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 					</Form.Item>
 				)}
 
-				{node.type === 'section' && (node.image || node.file) && (
-					<Form.Item label="Вложения" extra="Загрузка файлов появится позже.">
-						{node.image && <div>Картинка: <code>{node.image}</code></div>}
-						{node.file && <div>Файл: <code>{node.fileName ?? node.file}</code></div>}
-					</Form.Item>
+				{node.type === 'section' && (
+					<>
+						<Form.Item
+							name="image"
+							label="Картинка"
+							extra={superadmin ? 'JPG, PNG или GIF до 10 МБ. Приходит вместе с текстом сообщения.' : 'Менять может только суперадмин.'}
+						>
+							<ImageField readOnly={!superadmin} />
+						</Form.Item>
+
+						{values.image !== initial.image && (
+							<Alert className="form-alert" type="warning" title="Проверьте текст с картинки, поиск опирается на него" />
+						)}
+
+						<Form.Item name="file" label="Файл" extra="PDF, документы, таблицы или архив до 50 МБ. Приходит отдельным сообщением после текста.">
+							<FileField name={values.fileName} onNameChange={fileName => form.setFieldValue('fileName', fileName)} />
+						</Form.Item>
+						<Form.Item name="fileName" hidden>
+							<Input />
+						</Form.Item>
+					</>
 				)}
 
-				{node.type === 'section' && (node.image || node.imageText) && (
+				{node.type === 'section' && (values.image || node.imageText) && (
 					<Form.Item
 						name="imageText"
 						label="Текст с картинки"

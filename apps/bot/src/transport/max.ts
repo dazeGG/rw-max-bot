@@ -81,7 +81,8 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 		}
 
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rw-max-bot-'));
-		const copy = path.join(dir, displayName);
+		// Имя задают сотрудники: копия не должна выйти за временную папку
+		const copy = path.join(dir, path.basename(displayName));
 
 		try {
 			await fs.copyFile(absolute, copy);

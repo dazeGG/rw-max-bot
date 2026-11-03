@@ -21,6 +21,8 @@ import type {
 	UpdateNodeRequest,
 	UpdateSettingsRequest,
 	UpdateStaffRequest,
+	UploadKind,
+	UploadResult,
 } from '@rw/core';
 
 export class UnauthorizedError extends Error {}
@@ -28,13 +30,7 @@ export class UnauthorizedError extends Error {}
 // Запись опоздала: данные на сервере уже изменились
 export class ConflictError extends Error {}
 
-const request = async <T>(path: string, init: { method?: string; body?: unknown; } = {}): Promise<T> => {
-	const response = await fetch(`/api${path}`, {
-		method: init.method ?? 'GET',
-		headers: init.body === undefined ? {} : { 'content-type': 'application/json' },
-		body: init.body === undefined ? undefined : JSON.stringify(init.body),
-	});
-
+const parse = async <T>(response: Response): Promise<T> => {
 	if (!response.ok) {
 		const body = await response.json().catch(() => null) as ApiError | null;
 		const message = body?.error ?? `Ошибка ${response.status}`;
@@ -48,6 +44,14 @@ const request = async <T>(path: string, init: { method?: string; body?: unknown;
 
 	return response.status === 204 ? undefined as T : await response.json() as T;
 };
+
+const request = async <T>(path: string, init: { method?: string; body?: unknown; } = {}): Promise<T> => parse<T>(await fetch(`/api${path}`, {
+	method: init.method ?? 'GET',
+	headers: init.body === undefined ? {} : { 'content-type': 'application/json' },
+	body: init.body === undefined ? undefined : JSON.stringify(init.body),
+}));
+
+export const mediaUrl = (path: string) => `/api/content/media/${path.split('/').map(encodeURIComponent).join('/')}`;
 
 export const api = {
 	me: () => request<AdminUser>('/auth/me'),
@@ -63,6 +67,11 @@ export const api = {
 	moveNode: (id: number, body: MoveNodeRequest) => request<void>(`/content/nodes/${id}/move`, { method: 'POST', body }),
 	deleteNode: (id: number) => request<void>(`/content/nodes/${id}`, { method: 'DELETE' }),
 	applyContent: () => request<ContentApplied>('/content/apply', { method: 'POST' }),
+	upload: async (kind: UploadKind, file: File) => parse<UploadResult>(await fetch(`/api/content/uploads?kind=${kind}&name=${encodeURIComponent(file.name)}`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/octet-stream' },
+		body: file,
+	})),
 	updateSettings: (body: UpdateSettingsRequest) => request<Settings>('/content/settings', { method: 'PATCH', body }),
 	contentVersions: () => request<ContentVersionEntry[]>('/content/versions'),
 	contentVersionDiff: (version: string) => request<ContentVersionDiff>(`/content/versions/${encodeURIComponent(version)}`),

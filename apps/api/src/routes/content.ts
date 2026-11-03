@@ -1,12 +1,14 @@
 // Редактор дерева. Контент правят суперадмин и админ; поддержке он недоступен
 
 import { randomBytes } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { Readable } from 'node:stream';
 
 import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import { DEFAULT_SETTINGS, ROOT_CODE } from '@rw/core';
-import type { AdminContentNode, AdminUser, ContentApplied, ContentNode, ContentVersionDiff, ContentVersionEntry, CreateNodeRequest, MoveNodeRequest, Settings, UpdateNodeRequest, UpdateSettingsRequest } from '@rw/core';
+import type { AdminContentNode, AdminUser, ContentApplied, ContentNode, ContentVersionDiff, ContentVersionEntry, CreateNodeRequest, MoveNodeRequest, Settings, UpdateNodeRequest, UpdateSettingsRequest, UploadKind, UploadResult } from '@rw/core';
 import { admins, auditLog, contentNodes, contentVersions, db, settings } from '@rw/db';
 import { errorMessage } from '@rw/runtime';
 
@@ -19,6 +21,7 @@ import { notifyBotContentChanged } from '../content-notifier';
 import { diffContent, HISTORY_LIMIT, imagesChanged, linkUrlError, mergeHistory, messageError, moveError, normalizeSynonyms, parentError, settingError, subtreeIds, targetError, toContentNode } from '../content-rules';
 import { RuleError } from '../errors';
 import { logger } from '../logger';
+import { assertUploadSize, fileNameError, mediaFile, saveUpload, uploadedPathError } from '../uploads';
 
 const SORT_STEP = 10;
 // Ключ блокировки записи контента, значение произвольное
@@ -45,6 +48,8 @@ const createBody = {
 	},
 } as const;
 
+const attachmentPath = { type: ['string', 'null'], maxLength: 300 } as const;
+
 const updateBody = {
 	type: 'object',
 	required: ['updatedAt'],
@@ -55,7 +60,10 @@ const updateBody = {
 		url,
 		targetId: { type: ['integer', 'null'] },
 		synonyms: { type: 'array', maxItems: 200, items: { type: 'string', maxLength: 300 } },
+		image: attachmentPath,
 		imageText: { type: ['string', 'null'], maxLength: 10_000 },
+		file: attachmentPath,
+		fileName: { type: ['string', 'null'], maxLength: 300 },
 		isActive: { type: 'boolean' },
 		isHidden: { type: 'boolean' },
 	},
@@ -67,6 +75,15 @@ const moveBody = {
 	properties: {
 		parentId: { type: 'integer' },
 		index: { type: 'integer', minimum: 0 },
+	},
+} as const;
+
+const uploadQuery = {
+	type: 'object',
+	required: ['kind', 'name'],
+	properties: {
+		kind: { type: 'string', enum: ['image', 'file'] },
+		name: { type: 'string', minLength: 1, maxLength: 300 },
 	},
 } as const;
 
@@ -162,6 +179,9 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 
 	const actorOf = (request: FastifyRequest): AdminUser => request.admin!;
 
+	// Тело не разбирается и не копится в памяти: это только поток. Читать его начинает обработчик, то есть уже после проверки роли
+	app.addContentTypeParser('application/octet-stream', (_request, payload, done) => done(null, payload));
+
 	app.get('/', loadAdminContent);
 
 	// Отдельно от сохранения: бот перестраивает индекс поиска несколько секунд, форма столько ждать не должна.
@@ -218,13 +238,19 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 				throw new RuleError(409, `Раздел уже изменил другой сотрудник${row.updatedBy ? ` (${row.updatedBy})` : ''}. Обновите страницу`);
 			}
 
+			const file = body.file === undefined ? row.file : emptyToNull(body.file);
+
 			const next = {
 				title: body.title?.trim() ?? row.title,
 				text: body.text === undefined ? row.text : emptyToNull(body.text),
 				url: body.url === undefined ? row.url : emptyToNull(body.url),
 				targetId: body.targetId === undefined ? row.targetId : body.targetId,
 				synonyms: body.synonyms ? normalizeSynonyms(body.synonyms) : row.synonyms,
+				image: body.image === undefined ? row.image : emptyToNull(body.image),
 				imageText: body.imageText === undefined ? row.imageText : emptyToNull(body.imageText),
+				file,
+				// Без файла имени быть не может: иначе бот показал бы чужое имя у следующего файла
+				fileName: file === null ? null : body.fileName === undefined ? row.fileName : emptyToNull(body.fileName),
 				isActive: body.isActive ?? row.isActive,
 				isHidden: body.isHidden ?? row.isHidden,
 			};
@@ -237,6 +263,31 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 
 			if (changed.includes('imageText') && actor.role !== 'superadmin') {
 				throw new RuleError(403, 'Текст с картинки может менять только суперадмин');
+			}
+
+			if (changed.includes('image') && actor.role !== 'superadmin') {
+				throw new RuleError(403, 'Картинку может менять только суперадмин');
+			}
+
+			if ((changed.includes('image') || changed.includes('file')) && row.type !== 'section') {
+				throw new RuleError(400, 'Картинка и файл бывают только у раздела с ответом');
+			}
+
+			if (changed.includes('image') && next.image !== null) {
+				assertRule(await uploadedPathError('image', next.image));
+			}
+
+			if (changed.includes('file') && next.file !== null) {
+				assertRule(await uploadedPathError('file', next.file));
+			}
+
+			if (next.fileName !== null && (changed.includes('file') || changed.includes('fileName'))) {
+				assertRule(fileNameError(next.fileName));
+			}
+
+			// Только при смене файла: у раздела из начального контента имени может не быть, и другие его поля должны сохраняться
+			if (changed.includes('file') && next.file !== null && next.fileName === null) {
+				throw new RuleError(400, 'Укажите имя файла');
 			}
 
 			if (row.code === ROOT_CODE && (!next.isActive || next.isHidden)) {
@@ -315,6 +366,44 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 		});
 
 		return reply.code(204).send();
+	});
+
+	// Файл кладется на сервер, в раздел он попадет при сохранении формы: так работают проверка чужой правки, журнал и история
+	app.post<{ Querystring: { kind: UploadKind; name: string; }; }>('/uploads', { schema: { querystring: uploadQuery } }, async (request): Promise<UploadResult> => {
+		const { kind, name } = request.query;
+
+		if (!(request.body instanceof Readable)) {
+			throw new RuleError(415, 'Файл нужно передавать как application/octet-stream');
+		}
+
+		if (kind === 'image' && actorOf(request).role !== 'superadmin') {
+			throw new RuleError(403, 'Картинку может менять только суперадмин');
+		}
+
+		if (kind === 'file') {
+			assertRule(fileNameError(name));
+		}
+
+		assertUploadSize(kind, Number(request.headers['content-length'] ?? 0));
+
+		return saveUpload(kind, name, request.body);
+	});
+
+	app.get<{ Params: { '*': string; }; }>('/media/*', async (request, reply) => {
+		const file = await mediaFile(request.params['*']);
+
+		if (!file) {
+			throw new RuleError(404, 'Файл не найден');
+		}
+
+		// Имя в uploads — хеш содержимого: файл по этому адресу не изменится
+		return reply
+			.header('content-type', file.type ?? 'application/octet-stream')
+			.header('content-length', file.size)
+			.header('content-disposition', file.type ? 'inline' : 'attachment')
+			.header('x-content-type-options', 'nosniff')
+			.header('cache-control', 'private, max-age=86400')
+			.send(createReadStream(file.absolute));
 	});
 
 	// previous — значение, которое правил сотрудник: чужая правка того же текста молча не затирается

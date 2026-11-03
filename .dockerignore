@@ -8,5 +8,6 @@
 .vscode
 logs
 coverage
+media/uploads
 .env
 *.log

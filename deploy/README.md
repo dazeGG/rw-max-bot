@@ -9,6 +9,8 @@
 | `bot`      | Бот в режиме webhook | — |
 | `postgres` | PostgreSQL 16, данные в томе `rw-max-bot_pgdata` | — |
 
+Загруженные картинки и файлы разделов лежат в томе `rw-max-bot_uploads`: API в него пишет, бот читает.
+
 `/internal/*` (запросы бота к API) снаружи недоступен: бот ходит в API внутри docker-сети.
 
 ## Админка
@@ -135,6 +137,7 @@ dc ps                       # состояние
 dc logs -f bot              # журнал бота (api, web, postgres — так же)
 dc restart bot
 dc exec -T postgres pg_dump -U rw rw_max_bot > /root/backup-$(date +%F).sql     # резервная копия БД
+docker run --rm -v rw-max-bot_uploads:/data:ro -v /root:/backup alpine tar czf /backup/uploads-$(date +%F).tar.gz -C /data .     # загруженные файлы
 ```
 
 Журналы приложений также пишутся в том `rw-max-bot_logs` (`api.log`, `bot.log`, `*-error.log`).
