@@ -7,13 +7,14 @@ import { Readable } from 'node:stream';
 
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
-import type { SupportAttachment, SupportReplyRequest, SupportTab, SupportTransferRequest, UploadKind, UploadResult } from '@rw/core';
+import type { SupportAttachment, SupportReplyRequest, SupportTab, SupportTemplateRequest, SupportTransferRequest, UploadKind, UploadResult } from '@rw/core';
 import { repoPath } from '@rw/runtime';
 
 import { requireAdmin } from '../auth/guards';
 import { RuleError } from '../errors';
 import { activeStaff, closeTicket, countTickets, listTickets, loadTicketDetail, releaseAllTickets, releaseTicket, replyToTicket, SUPPORT_FOLDER, supportFile, takeTicket, transferTicket } from '../support';
 import { addStream } from '../support-hub';
+import { createTemplate, deleteTemplate, listTemplates, updateTemplate } from '../support-templates';
 import { assertUploadSize, fileNameError, saveUpload } from '../uploads';
 
 const MESSAGE_LIMIT = 3900;
@@ -29,7 +30,10 @@ const idParams = {
 const listQuery = {
 	type: 'object',
 	required: ['tab'],
-	properties: { tab: { type: 'string', enum: ['queue', 'mine', 'closed', 'all'] } },
+	properties: {
+		tab: { type: 'string', enum: ['open', 'mine', 'closed'] },
+		search: { type: 'string', maxLength: 200 },
+	},
 } as const;
 
 const uploadQuery = {
@@ -67,6 +71,17 @@ const transferBody = {
 	type: 'object',
 	required: ['adminId'],
 	properties: { adminId: { type: 'integer' } },
+} as const;
+
+const templateBody = {
+	type: 'object',
+	required: ['title', 'command', 'text'],
+	properties: {
+		title: { type: 'string', minLength: 1, maxLength: 100, pattern: '\\S' },
+		// Без пробелов и косых черт: иначе команду не набрать в ответе
+		command: { type: 'string', minLength: 1, maxLength: 50, pattern: '^[^\\s/]+$' },
+		text: { type: 'string', minLength: 1, maxLength: MESSAGE_LIMIT, pattern: '\\S' },
+	},
 } as const;
 
 const assertAttachments = async (attachments: SupportAttachment[]) => {
@@ -112,7 +127,7 @@ export const supportRoutes: FastifyPluginAsync = async app => {
 
 	app.get('/staff', () => activeStaff());
 
-	app.get<{ Querystring: { tab: SupportTab; }; }>('/tickets', { schema: { querystring: listQuery } }, request => listTickets(request.query.tab, actorOf(request)));
+	app.get<{ Querystring: { tab: SupportTab; search?: string; }; }>('/tickets', { schema: { querystring: listQuery } }, request => listTickets(request.query.tab, actorOf(request), request.query.search));
 
 	app.get<{ Params: { id: number; }; }>('/tickets/:id', { schema: { params: idParams } }, request => loadTicketDetail(request.params.id, actorOf(request)));
 
@@ -148,6 +163,17 @@ export const supportRoutes: FastifyPluginAsync = async app => {
 		await assertAttachments(attachments);
 		await replyToTicket(request.params.id, text.trim(), attachments, actorOf(request));
 
+		return reply.code(204).send();
+	});
+
+	app.get('/templates', request => listTemplates(actorOf(request)));
+
+	app.post<{ Body: SupportTemplateRequest; }>('/templates', { schema: { body: templateBody } }, request => createTemplate(request.body, actorOf(request)));
+
+	app.put<{ Params: { id: number; }; Body: SupportTemplateRequest; }>('/templates/:id', { schema: { params: idParams, body: templateBody } }, request => updateTemplate(request.params.id, request.body, actorOf(request)));
+
+	app.delete<{ Params: { id: number; }; }>('/templates/:id', { schema: { params: idParams } }, async (request, reply) => {
+		await deleteTemplate(request.params.id, actorOf(request));
 		return reply.code(204).send();
 	});
 

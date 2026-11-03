@@ -7,6 +7,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router';
 
 import { App } from './App';
 import { queryClient } from './session';
+import { theme } from './theme';
 import './styles.css';
 
 // Роутер данных нужен для предупреждения о несохраненных правках при переходе (useBlocker)
@@ -14,7 +15,7 @@ const router = createBrowserRouter([{ path: '*', element: <App /> }]);
 
 createRoot(document.getElementById('root')!).render(
 	<StrictMode>
-		<ConfigProvider locale={ruRU}>
+		<ConfigProvider locale={ruRU} theme={theme}>
 			<AntApp>
 				<QueryClientProvider client={queryClient}>
 					<RouterProvider router={router} />

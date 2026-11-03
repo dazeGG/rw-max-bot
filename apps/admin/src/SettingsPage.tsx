@@ -1,15 +1,18 @@
+import { ExclamationCircleFilled } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Alert, App, Button, Checkbox, Form, Input, Modal, Select, Table, Tabs, Tag } from 'antd';
+import { Alert, Anchor, App, Badge, Button, Card, Checkbox, Form, Input, Modal, Select, Table, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { ReactNode, RefObject } from 'react';
 
 import type { ContentVersionEntry, SettingKey, Settings } from '@rw/core';
 
 import { api, ConflictError } from './api';
 import { ApplyStatus, useApply } from './apply-status';
 import { buildTree, pathOf } from './content-tree';
-import { ACTION_LABELS, fieldLabels, formatDate, SETTING_LABELS } from './labels';
+import { ACTION_LABELS, fieldLabels, formatWhen, plural, SETTING_LABELS } from './labels';
 import { MessageEditor } from './MessageEditor';
+import { PageHeader, PersonAvatar, staffInitials } from './page';
 import { CONTENT_KEY, errorText, queryClient } from './session';
 import { useUnsavedGuard } from './unsaved';
 
@@ -18,17 +21,12 @@ const VERSIONS_KEY = ['content-versions'];
 // Сколько названий разделов показать в подтверждении возврата
 const NAMES_SHOWN = 10;
 
-const MESSAGES: { key: SettingKey; hint: string; }[] = [
-	{ key: 'text.greeting', hint: 'Отправляется перед ответом, когда пассажир поздоровался.' },
-	{ key: 'text.didYouMean', hint: 'Бот не уверен, что понял вопрос. Варианты он добавит сам.' },
-	{ key: 'text.fallback', hint: 'Бот не нашел ответа. Темы главного меню он добавит сам.' },
-	{ key: 'text.anythingElse', hint: 'Отдельное сообщение после ответа.' },
-	{ key: 'text.askMore', hint: 'Пассажир ответил, что у него есть еще вопрос. Темы главного меню бот добавит сам.' },
-	{ key: 'text.supportQueued', hint: 'Пассажир выбрал «Написать оператору» в рабочее время.' },
-	{ key: 'text.supportOffHours', hint: 'То же в нерабочее время. Вместо {next} бот подставит, когда ответят: «завтра с 8:00».' },
-	{ key: 'text.supportClosed', hint: 'Сотрудник закрыл обращение или пассажир не отвечал 24 часа.' },
-	{ key: 'text.supportCancelled', hint: 'Пассажир передумал, пока обращение ждало в очереди. Следом бот покажет главное меню.' },
-	{ key: 'text.goodbye', hint: 'Пассажир ответил, что вопросов больше нет.' },
+const TIME_RULE = { pattern: /^([01]\d|2[0-3]):[0-5]\d$/, message: 'Например: 08:00' };
+
+const GROUPS = [
+	{ id: 'dialog', title: 'Начало и конец диалога' },
+	{ id: 'unsure', title: 'Когда бот не уверен' },
+	{ id: 'support', title: 'Чат поддержки' },
 ];
 
 const WEEK_DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((label, index) => ({ label, value: String(index + 1) }));
@@ -42,7 +40,36 @@ const DaysField = ({ value = '', onChange }: { value?: string; onChange?: (value
 	/>
 );
 
-const TextsForm = ({ settings, onSaved, onRefresh }: { settings: Settings; onSaved: () => Promise<void>; onRefresh: () => void; }) => {
+const Row = ({ label, hint, required = true, children }: { label: string; hint: string; required?: boolean; children: ReactNode; }) => (
+	<div className="text-row">
+		<div className="text-row-label">
+			<div className={required ? 'required-mark' : undefined}>{label}</div>
+			<div className="muted">{hint}</div>
+		</div>
+		<div className="text-row-field">{children}</div>
+	</div>
+);
+
+const TextRow = ({ name, hint }: { name: SettingKey; hint: string; }) => (
+	<Row label={SETTING_LABELS[name]} hint={hint}>
+		<Form.Item name={name} rules={[{ required: true, whitespace: true, message: 'Текст не может быть пустым' }]}>
+			<MessageEditor compact />
+		</Form.Item>
+	</Row>
+);
+
+const changesText = (keys: SettingKey[]) => keys.length === 1
+	? `Изменён 1 текст: «${SETTING_LABELS[keys[0]]}»`
+	: `Изменено ${keys.length} ${plural(keys.length, ['текст', 'текста', 'текстов'])}`;
+
+type TextsFormProps = {
+	settings: Settings;
+	scroller: RefObject<HTMLElement | null>;
+	onSaved: () => Promise<void>;
+	onRefresh: () => void;
+};
+
+const TextsForm = ({ settings, scroller, onSaved, onRefresh }: TextsFormProps) => {
 	const [form] = Form.useForm<Settings>();
 	const { message } = App.useApp();
 	const watched = Form.useWatch([], form) as Partial<Settings> | undefined;
@@ -76,85 +103,110 @@ const TextsForm = ({ settings, onSaved, onRefresh }: { settings: Settings; onSav
 	const handoffLost = handoff !== '' && content.data !== undefined && !sections.some(section => section.value === handoff);
 
 	return (
-		<Form form={form} className="settings-form" layout="vertical" initialValues={settings} onFinish={() => save.mutate()}>
-			{MESSAGES.map(({ key, hint }) => (
-				<Form.Item
-					key={key}
-					name={key}
-					label={SETTING_LABELS[key]}
-					extra={hint}
-					rules={[{ required: true, whitespace: true, message: 'Текст не может быть пустым' }]}
-				>
-					<MessageEditor />
-				</Form.Item>
-			))}
+		<div className="settings">
+			<Form form={form} className="settings-form" layout="vertical" initialValues={settings} onFinish={() => save.mutate()}>
+				<Card id="dialog" title={GROUPS[0].title}>
+					<TextRow name="text.greeting" hint="Перед ответом, когда пассажир поздоровался." />
+					<TextRow name="text.anythingElse" hint="Отдельное сообщение после конечного ответа." />
+					<TextRow name="text.askMore" hint="Темы главного меню бот добавит сам." />
+					<TextRow name="text.goodbye" hint="Пассажир ответил, что вопросов больше нет." />
+				</Card>
 
-			<Form.Item
-				name="text.handoff"
-				label={SETTING_LABELS['text.handoff']}
-				extra="Последний пункт каждого уточнения поиска."
-				rules={[{ required: true, whitespace: true, message: 'Введите название пункта' }]}
-			>
-				<Input maxLength={200} />
-			</Form.Item>
+				<Card id="unsure" title={GROUPS[1].title}>
+					<TextRow name="text.didYouMean" hint="Бот не уверен, что понял. Варианты добавит сам." />
+					<TextRow name="text.fallback" hint="Ответа нет. Темы главного меню бот добавит сам." />
+					<Row label={SETTING_LABELS['text.handoff']} hint="Последний пункт каждого уточнения.">
+						<Form.Item name="text.handoff" rules={[{ required: true, whitespace: true, message: 'Введите название пункта' }]}>
+							<Input maxLength={200} />
+						</Form.Item>
+						<div className="handoff-target">
+							<span className="secondary">Ведёт в раздел</span>
+							<Form.Item name="search.handoff" noStyle>
+								<Select
+									aria-label={SETTING_LABELS['search.handoff']}
+									options={[{ value: '', label: 'Не показывать пункт' }, ...sections]}
+									showSearch={{ optionFilterProp: 'label' }}
+								/>
+							</Form.Item>
+						</div>
+						<div className="muted">Если раздел выключен, пункта тоже не будет.</div>
+						{handoffLost && <Alert type="warning" title="Раздел, куда ведет этот пункт, не найден: сейчас пункта нет. Выберите другой раздел." />}
+					</Row>
+				</Card>
 
-			<Form.Item
-				name="search.handoff"
-				label={SETTING_LABELS['search.handoff']}
-				extra="Если раздел выключен, пункта тоже не будет."
-			>
-				<Select
-					options={[{ value: '', label: 'Не показывать пункт' }, ...sections]}
-					showSearch={{ optionFilterProp: 'label' }}
+				<Card id="support" title={GROUPS[2].title}>
+					<TextRow name="text.supportQueued" hint="Пассажир выбрал «Написать оператору» в рабочее время." />
+					<TextRow name="text.supportOffHours" hint="То же в нерабочее время. Вместо {next} бот подставит, когда ответят: «завтра с 8:00»." />
+					<TextRow name="text.supportClosed" hint="Сотрудник закрыл обращение или пассажир не отвечал 24 часа." />
+					<TextRow name="text.supportCancelled" hint="Пассажир передумал, пока обращение ждало в очереди. Следом бот покажет главное меню." />
+					<Row label="Часы работы поддержки" hint="По якутскому времени. Обращения принимаются круглосуточно, в нерабочее время пассажир узнает, когда ему ответят." required={false}>
+						<div className="support-hours">
+							<Form.Item name="support.open" label="Начало" rules={[TIME_RULE]}>
+								<Input maxLength={5} />
+							</Form.Item>
+							<Form.Item name="support.close" label="Конец" rules={[TIME_RULE]}>
+								<Input maxLength={5} />
+							</Form.Item>
+						</div>
+						<Form.Item name="support.days" label="Рабочие дни">
+							<DaysField />
+						</Form.Item>
+					</Row>
+				</Card>
+
+				{/* Ошибка у панели сохранения: форма длинная, и в конце формы ее бы не увидели */}
+				<div className="form-footer">
+					{save.isError && (
+						<Alert
+							type="error"
+							title={errorText(save.error)}
+							action={save.error instanceof ConflictError ? <Button size="small" onClick={onRefresh}>Обновить</Button> : undefined}
+							description={save.error instanceof ConflictError ? 'После обновления ваши несохраненные правки пропадут: скопируйте их, если они нужны.' : undefined}
+						/>
+					)}
+
+					<div className="form-bar floating">
+						<Button type="primary" htmlType="submit" disabled={!dirty} loading={save.isPending}>Сохранить</Button>
+						{dirty && (
+							<>
+								<Button onClick={() => form.resetFields()}>Отменить правки</Button>
+								<Badge status="warning" text={changesText(changedKeys)} />
+							</>
+						)}
+					</div>
+				</div>
+
+				{modal}
+			</Form>
+
+			<nav className="settings-anchor" aria-label="Группы текстов">
+				<Anchor
+					affix={false}
+					targetOffset={16}
+					getContainer={() => scroller.current ?? window}
+					items={GROUPS.map(({ id, title }) => ({ key: id, href: `#${id}`, title }))}
+					onClick={event => event.preventDefault()}
 				/>
-			</Form.Item>
-
-			{handoffLost && <Alert className="form-alert" type="warning" title="Раздел, куда ведет этот пункт, не найден: сейчас пункта нет. Выберите другой раздел." />}
-
-			<h3>Часы работы поддержки</h3>
-			<p className="muted">По якутскому времени. Обращения принимаются круглосуточно, в нерабочее время пассажир получит сообщение, когда ему ответят.</p>
-			<div className="support-hours">
-				<Form.Item name="support.open" label="Начало" rules={[{ pattern: /^([01]\d|2[0-3]):[0-5]\d$/, message: 'Например: 08:00' }]}>
-					<Input maxLength={5} />
-				</Form.Item>
-				<Form.Item name="support.close" label="Конец" rules={[{ pattern: /^([01]\d|2[0-3]):[0-5]\d$/, message: 'Например: 20:00' }]}>
-					<Input maxLength={5} />
-				</Form.Item>
-			</div>
-			<Form.Item name="support.days" label="Рабочие дни">
-				<DaysField />
-			</Form.Item>
-
-			{save.isError && (
-				<Alert
-					className="form-alert"
-					type="error"
-					title={errorText(save.error)}
-					action={save.error instanceof ConflictError ? <Button size="small" onClick={onRefresh}>Обновить</Button> : undefined}
-					description={save.error instanceof ConflictError ? 'После обновления ваши несохраненные правки пропадут: скопируйте их, если они нужны.' : undefined}
-				/>
-			)}
-
-			<div className="form-bar">
-				<Button type="primary" htmlType="submit" disabled={!dirty} loading={save.isPending}>Сохранить</Button>
-				{dirty && <span className="muted">Есть несохраненные правки</span>}
-			</div>
-
-			{modal}
-		</Form>
+			</nav>
+		</div>
 	);
 };
 
-const NameList = ({ title, names }: { title: string; names: string[]; }) => names.length === 0
+const sectionsWord = (count: number) => `${count} ${plural(count, ['раздел', 'раздела', 'разделов'])}`;
+
+const DiffBlock = ({ tag, color, note, names }: { tag: string; color: string; note: string; names: string[]; }) => names.length === 0
 	? null
 	: (
-		<>
-			<p>{title}: {names.length}</p>
-			<ul>
-				{names.slice(0, NAMES_SHOWN).map((name, index) => <li key={`${index}:${name}`}>{name}</li>)}
-				{names.length > NAMES_SHOWN && <li className="muted">и еще {names.length - NAMES_SHOWN}</li>}
-			</ul>
-		</>
+		<div className="diff-block">
+			<div className="diff-head">
+				<Tag color={color}>{tag}</Tag>
+				<span className="muted">{note}</span>
+			</div>
+			<div>
+				{names.slice(0, NAMES_SHOWN).join(', ')}
+				{names.length > NAMES_SHOWN && <span className="muted"> и ещё {names.length - NAMES_SHOWN}</span>}
+			</div>
+		</div>
 	);
 
 const RestoreModal = ({ entry, onRestored, onClose }: { entry: ContentVersionEntry; onRestored: () => Promise<void>; onClose: () => void; }) => {
@@ -175,23 +227,35 @@ const RestoreModal = ({ entry, onRestored, onClose }: { entry: ContentVersionEnt
 	return (
 		<Modal
 			open
-			title={`Вернуть контент к версии от ${formatDate(entry.createdAt)}?`}
+			title={(
+				<span className="restore-title">
+					<ExclamationCircleFilled className="warning-icon" />
+					Вернуть контент к версии от {formatWhen(entry.createdAt)}?
+				</span>
+			)}
 			okText="Вернуть"
 			okButtonProps={{ danger: true, disabled: !diff.data || empty, loading: restore.isPending }}
 			cancelText="Отмена"
 			onOk={() => restore.mutate()}
 			onCancel={onClose}
 		>
-			<p>Все разделы и служебные тексты станут такими, как в этой версии. Текущая версия останется в истории: к ней можно будет вернуться.</p>
+			<p className="secondary">Все разделы и служебные тексты станут такими, как в этой версии. Текущую версию можно будет вернуть из истории.</p>
 			{diff.isPending && <p className="muted">Сравниваем с текущим контентом…</p>}
 			{diff.isError && <Alert type="error" title={errorText(diff.error)} />}
 			{empty && <p className="muted">Эта версия не отличается от текущего контента.</p>}
 			{diff.data && (
 				<>
-					<NameList title="Изменятся разделы" names={diff.data.changed} />
-					<NameList title="Вернутся удаленные разделы" names={diff.data.returned} />
-					<NameList title="Удалятся разделы, которых тогда не было" names={diff.data.removed} />
-					{diff.data.settings > 0 && <p>Изменятся служебные тексты: {diff.data.settings}</p>}
+					<DiffBlock tag="Изменятся" color="processing" note={sectionsWord(diff.data.changed.length)} names={diff.data.changed} />
+					<DiffBlock tag="Вернутся" color="success" note={`${sectionsWord(diff.data.returned.length)} из удалённых`} names={diff.data.returned} />
+					<DiffBlock tag="Удалятся" color="error" note={`${sectionsWord(diff.data.removed.length)}, которых тогда не было`} names={diff.data.removed} />
+					{diff.data.settings > 0 && (
+						<div className="diff-block">
+							<div className="diff-head">
+								<Tag color="orange">Тексты</Tag>
+								<span className="muted">изменятся служебные тексты: {diff.data.settings}</span>
+							</div>
+						</div>
+					)}
 				</>
 			)}
 			{restore.isError && <Alert type="error" title={errorText(restore.error)} />}
@@ -199,15 +263,29 @@ const RestoreModal = ({ entry, onRestored, onClose }: { entry: ContentVersionEnt
 	);
 };
 
-const describeEntry = (entry: ContentVersionEntry) => {
+const ACTION_COLORS: Record<string, string> = {
+	'content.update': 'processing',
+	'content.create': 'success',
+	'content.move': 'purple',
+	'settings.update': 'orange',
+	'content.delete': 'error',
+	'content.restore': 'cyan',
+};
+
+const WhatChanged = ({ entry }: { entry: ContentVersionEntry; }) => {
 	if (!entry.action) {
 		return <span className="muted">Изменение вне админки или начальная версия</span>;
 	}
 
-	const action = ACTION_LABELS[entry.action] ?? entry.action;
 	const fields = fieldLabels(entry.fields);
 
-	return `${action}: ${entry.title ?? '—'}${fields && ` (${fields})`}`;
+	return (
+		<div className="what-changed">
+			<Tag color={ACTION_COLORS[entry.action]}>{ACTION_LABELS[entry.action] ?? entry.action}</Tag>
+			{entry.title && <span>{entry.title}</span>}
+			{fields && <span className="muted">{fields}</span>}
+		</div>
+	);
 };
 
 const HistoryTab = ({ onRestored }: { onRestored: () => Promise<void>; }) => {
@@ -216,12 +294,25 @@ const HistoryTab = ({ onRestored }: { onRestored: () => Promise<void>; }) => {
 	const [restoring, setRestoring] = useState<ContentVersionEntry | null>(null);
 
 	const columns: TableColumnsType<ContentVersionEntry> = [
-		{ title: 'Когда', dataIndex: 'createdAt', render: (value: string) => formatDate(value) },
-		{ title: 'Кто', dataIndex: 'actorName', render: (value: string | null) => value ?? '—' },
-		{ title: 'Что изменилось', key: 'what', render: (_, entry) => describeEntry(entry) },
+		{ title: 'Когда', dataIndex: 'createdAt', width: 150, render: (value: string) => <span className="secondary">{formatWhen(value)}</span> },
+		{
+			title: 'Кто',
+			dataIndex: 'actorName',
+			width: 220,
+			render: (name: string | null) => name
+				? (
+					<span className="person small-gap">
+						<PersonAvatar initials={staffInitials(name)} seed={name} size="small" />
+						{name}
+					</span>
+				)
+				: <span className="muted">—</span>,
+		},
+		{ title: 'Что изменилось', key: 'what', render: (_, entry) => <WhatChanged entry={entry} /> },
 		{
 			title: '',
 			key: 'action',
+			width: 120,
 			align: 'right',
 			render: (_, entry) => {
 				if (entry.current) {
@@ -234,18 +325,19 @@ const HistoryTab = ({ onRestored }: { onRestored: () => Promise<void>; }) => {
 	];
 
 	return (
-		<>
-			<p className="muted">Последние изменения контента и служебных текстов. Кнопка «Вернуть» возвращает весь контент к состоянию после этого изменения.</p>
-			{versions.isError && <Alert className="form-alert" type="error" title={errorText(versions.error)} />}
-			<Table<ContentVersionEntry>
-				rowKey="id"
-				size="middle"
-				loading={versions.isPending}
-				dataSource={versions.data}
-				columns={columns}
-				pagination={{ pageSize: 20, hideOnSinglePage: true }}
-				scroll={{ x: 'max-content' }}
-			/>
+		<div className="page-stack">
+			<Alert type="info" showIcon title="«Вернуть» возвращает весь контент и служебные тексты к состоянию после выбранного изменения. Текущая версия останется в истории." />
+			{versions.isError && <Alert type="error" title={errorText(versions.error)} />}
+			<Card className="table-card">
+				<Table<ContentVersionEntry>
+					rowKey="id"
+					loading={versions.isPending}
+					dataSource={versions.data}
+					columns={columns}
+					pagination={{ pageSize: 20, hideOnSinglePage: true }}
+					scroll={{ x: 860 }}
+				/>
+			</Card>
 			{restoring && (
 				<RestoreModal
 					entry={restoring}
@@ -257,12 +349,14 @@ const HistoryTab = ({ onRestored }: { onRestored: () => Promise<void>; }) => {
 					}}
 				/>
 			)}
-		</>
+		</div>
 	);
 };
 
 export const SettingsPage = () => {
-	const { status, apply } = useApply();
+	const { status, appliedAt, apply } = useApply();
+	const [tab, setTab] = useState('texts');
+	const scroller = useRef<HTMLElement>(null);
 	const content = useQuery({ queryKey: CONTENT_KEY, queryFn: api.content, refetchOnWindowFocus: false });
 
 	const refresh = () => queryClient.invalidateQueries({ queryKey: CONTENT_KEY });
@@ -283,23 +377,21 @@ export const SettingsPage = () => {
 	const { settings } = content.data;
 
 	return (
-		<main className="page">
-			<ApplyStatus status={status} />
-			<Tabs
-				items={[
-					{
-						key: 'texts',
-						label: 'Служебные тексты',
-						// Форма заново монтируется от новых значений: после сохранения, обновления или возврата версии
-						children: <TextsForm key={JSON.stringify(settings)} settings={settings} onSaved={saved} onRefresh={() => void refresh()} />,
-					},
-					{
-						key: 'history',
-						label: 'История версий',
-						children: <HistoryTab onRestored={saved} />,
-					},
-				]}
+		<>
+			<PageHeader
+				title="Настройки"
+				extra={<ApplyStatus status={status} appliedAt={appliedAt} />}
+				tabs={[{ key: 'texts', label: 'Служебные тексты' }, { key: 'history', label: 'История версий' }]}
+				activeTab={tab}
+				onTab={setTab}
 			/>
-		</main>
+			<main ref={scroller} className="page-body">
+				{/* Форма остается на странице при смене вкладки, чтобы не терять правки. Заново монтируется от новых значений: после сохранения, обновления или возврата версии */}
+				<div className="settings-texts" hidden={tab !== 'texts'}>
+					<TextsForm key={JSON.stringify(settings)} settings={settings} scroller={scroller} onSaved={saved} onRefresh={() => void refresh()} />
+				</div>
+				{tab === 'history' && <HistoryTab onRestored={saved} />}
+			</main>
+		</>
 	);
 };

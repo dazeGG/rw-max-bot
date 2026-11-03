@@ -1,15 +1,18 @@
+import { DeleteOutlined, EllipsisOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { Alert, App, Button, Checkbox, Form, Input, Modal, Select } from 'antd';
+import { Alert, App, Badge, Breadcrumb, Button, Card, Divider, Dropdown, Form, Input, Modal, Progress, Select, Switch, Tag } from 'antd';
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import type { AdminContentNode, AdminUser, Settings, UpdateNodeRequest } from '@rw/core';
 
 import { api, ConflictError, mediaUrl } from './api';
 import { FileField, ImageField } from './attachments';
-import { pathOf, previewReplies, subtreeOf } from './content-tree';
+import { ancestorsOf, pathOf, previewReplies, subtreeOf } from './content-tree';
 import type { Tree } from './content-tree';
+import { formatDate, formatTime } from './labels';
 import { MessageEditor, MessageView } from './MessageEditor';
+import { shortName } from './page';
 import { errorText } from './session';
 import { useUnsavedGuard } from './unsaved';
 
@@ -58,28 +61,39 @@ const Preview = ({ tree, settings, node, values }: { tree: Tree; settings: Setti
 	}), [tree, settings, node, values]);
 
 	const main = replies[0];
+	const tooLong = main !== undefined && main.text.length > MAX_MESSAGE_LENGTH;
 
 	return (
 		<aside className="preview">
-			<h3>Как увидит пассажир</h3>
-			{!values.isActive && <p className="muted">Раздел выключен: пока пассажиры его не видят.</p>}
-			{!main && <Alert type="warning" title="Бот не покажет этот пункт: раздел, куда он ведет, не выбран или выключен" />}
-			{main && (
-				<>
-					<div className="bubble">
-						{main.image && <img className="attachment-image" src={mediaUrl(main.image)} alt="" />}
-						<MessageView text={main.text} />
-						{main.file && <div className="attachment">Файл: {main.file.name}</div>}
-					</div>
-					{replies.slice(1).map(reply => <div key={reply.text} className="bubble">{reply.text}</div>)}
-					<p className={main.text.length > MAX_MESSAGE_LENGTH ? 'error' : 'muted'}>
-						{main.text.length} из {MAX_MESSAGE_LENGTH} символов вместе с разметкой
-					</p>
-					{main.text.length > MAX_MESSAGE_LENGTH && (
-						<Alert type="error" title="MAX может не принять такое длинное сообщение. Сократите текст или вынесите часть в отдельный раздел" />
-					)}
-				</>
-			)}
+			<Card size="small" title="Как увидит пассажир" extra={<Tag variant="filled">MAX</Tag>}>
+				{!values.isActive && <p className="muted preview-note">Раздел выключен: пока пассажиры его не видят.</p>}
+				{!main && <Alert type="warning" title="Бот не покажет этот пункт: раздел, куда он ведет, не выбран или выключен" />}
+				{main && (
+					<>
+						<div className="max-chat">
+							<div className="bubble">
+								{main.image && <img src={mediaUrl(main.image)} alt="" />}
+								<MessageView text={main.text} />
+								{main.file && <div className="bubble-file">Файл: {main.file.name}</div>}
+								<span className="bubble-time">{formatTime(node.updatedAt)}</span>
+							</div>
+							{replies.slice(1).map(reply => <div key={reply.text} className="bubble">{reply.text}</div>)}
+						</div>
+						<Progress
+							percent={Math.min(100, main.text.length / MAX_MESSAGE_LENGTH * 100)}
+							showInfo={false}
+							size="small"
+							status={tooLong ? 'exception' : 'normal'}
+						/>
+						<div className={tooLong ? 'error small' : 'muted small'}>
+							{main.text.length} из {MAX_MESSAGE_LENGTH} символов вместе с разметкой
+						</div>
+						{tooLong && (
+							<Alert className="preview-alert" type="error" title="MAX может не принять такое длинное сообщение. Сократите текст или вынесите часть в отдельный раздел" />
+						)}
+					</>
+				)}
+			</Card>
 		</aside>
 	);
 };
@@ -136,6 +150,10 @@ const DeleteModal = ({ node, tree, settings, dirty, onDisable, onDeleted, onClos
 		</Modal>
 	);
 };
+
+const SectionTitle = ({ children }: { children: string; }) => (
+	<Divider className="form-section" titlePlacement="start">{children}</Divider>
+);
 
 type NodeFormProps = {
 	node: AdminContentNode;
@@ -203,97 +221,135 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 		.map(item => ({ value: item.id, label: pathOf(tree, item) }));
 
 	return (
-		<div className="node-editor">
+		<Card className="node-card">
 			<Form form={form} className="node-form" layout="vertical" initialValues={initial} onFinish={submit}>
-				{node.code === 'operator' && (
-					<Alert className="form-alert" type="info" title="Этот пункт передает пассажира в чат поддержки. Поиск его не находит, текст раздела пассажир не увидит. Такой же пункт есть в главном меню: он работает, только если включены оба." />
-				)}
-				<p className="muted">
-					Код: <code>{node.code}</code>
-					{node.updatedBy && ` · изменил(а) ${node.updatedBy}, ${new Date(node.updatedAt).toLocaleString('ru-RU')}`}
-				</p>
+				<div className="node-head">
+					<Breadcrumb
+						items={[
+							...ancestorsOf(tree, node.id).map(item => ({ key: item.id, title: <Link to={`/content/${item.id}`}>{item.title}</Link> })),
+							{ key: node.id, title: values.title },
+						]}
+					/>
+					<div className="node-head-row">
+						<h2>{values.title || 'Без названия'}</h2>
+						{!isRoot && (
+							<>
+								<label className="node-switch">
+									<Form.Item name="isActive" valuePropName="checked" noStyle>
+										<Switch />
+									</Form.Item>
+									{values.isActive ? 'Включён' : 'Выключен'}
+								</label>
+								<Dropdown
+									trigger={['click']}
+									menu={{ items: [{ key: 'delete', icon: <DeleteOutlined />, label: 'Удалить', danger: true, onClick: () => setDeleting(true) }] }}
+								>
+									<Button icon={<EllipsisOutlined />} aria-label="Ещё действия" />
+								</Dropdown>
+							</>
+						)}
+					</div>
+					<div className="muted">
+						Код <code>{node.code}</code>
+						{node.updatedBy && ` · изменено: ${shortName(node.updatedBy)}, ${formatDate(node.updatedAt)}`}
+					</div>
+				</div>
 
-				<Form.Item name="title" label="Название пункта" rules={[{ required: true, whitespace: true, message: 'Введите название' }]}>
-					<Input maxLength={200} />
-				</Form.Item>
-
-				{node.type === 'section' && (
-					<Form.Item
-						name="text"
-						label="Текст сообщения"
-						extra="Enter начинает новую строку. Если текст пустой, бот покажет название пункта. Варианты ответа бот добавит сам — см. предпросмотр."
-					>
-						<MessageEditor />
-					</Form.Item>
-				)}
-
-				{node.type === 'section' && (
-					<>
-						<Form.Item
-							name="image"
-							label="Картинка"
-							extra={superadmin ? 'JPG, PNG или GIF до 10 МБ. Приходит вместе с текстом сообщения.' : 'Менять может только суперадмин.'}
-						>
-							<ImageField readOnly={!superadmin} />
-						</Form.Item>
-
-						{values.image !== initial.image && (
-							<Alert className="form-alert" type="warning" title="Проверьте текст с картинки, поиск опирается на него" />
+				<div className="node-body">
+					<div className="node-fields">
+						{node.code === 'operator' && (
+							<Alert className="form-alert" type="info" title="Этот пункт передает пассажира в чат поддержки. Поиск его не находит, текст раздела пассажир не увидит. Такой же пункт есть в главном меню: он работает, только если включены оба." />
 						)}
 
-						<Form.Item name="file" label="Файл" extra="PDF, документы, таблицы или архив до 50 МБ. Приходит отдельным сообщением после текста.">
-							<FileField name={values.fileName} onNameChange={fileName => form.setFieldValue('fileName', fileName)} />
+						<SectionTitle>Сообщение</SectionTitle>
+
+						<Form.Item name="title" label="Название пункта" rules={[{ required: true, whitespace: true, message: 'Введите название' }]}>
+							<Input maxLength={200} />
 						</Form.Item>
-						<Form.Item name="fileName" hidden>
-							<Input />
+
+						{node.type === 'section' && (
+							<Form.Item
+								name="text"
+								label="Текст сообщения"
+								extra="Enter — новая строка. Если текст пустой, бот покажет название пункта. Варианты ответа бот добавит сам, их видно в предпросмотре."
+							>
+								<MessageEditor />
+							</Form.Item>
+						)}
+
+						{node.type === 'link' && (
+							<Form.Item name="url" label="Адрес сайта" rules={[{ required: true, whitespace: true, message: 'Введите адрес' }]}>
+								<Input placeholder="https://" maxLength={2000} />
+							</Form.Item>
+						)}
+
+						{node.type === 'goto' && (
+							<Form.Item name="targetId" label="Куда ведет" rules={[{ required: true, message: 'Выберите раздел' }]}>
+								<Select options={targets} showSearch={{ optionFilterProp: 'label' }} placeholder="Выберите раздел" />
+							</Form.Item>
+						)}
+
+						{node.type === 'section' && (
+							<>
+								<SectionTitle>Вложения</SectionTitle>
+
+								<div className="attachments-grid">
+									<Form.Item name="image" label="Картинка">
+										<ImageField readOnly={!superadmin} />
+									</Form.Item>
+									<Form.Item name="file" label="Файл">
+										<FileField name={values.fileName} onNameChange={fileName => form.setFieldValue('fileName', fileName)} />
+									</Form.Item>
+								</div>
+								<Form.Item name="fileName" hidden>
+									<Input />
+								</Form.Item>
+
+								{values.image !== initial.image && (
+									<Alert className="form-alert" type="warning" title="Проверьте текст с картинки, поиск опирается на него" />
+								)}
+
+								{(values.image || node.imageText) && (
+									<Form.Item
+										name="imageText"
+										label="Текст с картинки"
+										extra={superadmin ? 'Пассажир его не видит, по нему работает поиск.' : 'Пассажир его не видит, по нему работает поиск. Менять может только суперадмин.'}
+									>
+										<Input.TextArea autoSize={{ minRows: 3, maxRows: 12 }} readOnly={!superadmin} />
+									</Form.Item>
+								)}
+							</>
+						)}
+
+						<SectionTitle>Поиск и показ</SectionTitle>
+
+						<Form.Item
+							name="synonyms"
+							label="Как об этом спрашивают"
+							extra="Целые фразы, как напишет пассажир: «как вернуть деньги за билет», а не отдельные слова. Enter добавляет фразу."
+						>
+							<Select mode="tags" open={false} suffixIcon={null} tokenSeparators={[]} />
 						</Form.Item>
-					</>
-				)}
 
-				{node.type === 'section' && (values.image || node.imageText) && (
-					<Form.Item
-						name="imageText"
-						label="Текст с картинки"
-						extra={superadmin ? 'Пассажир его не видит, по нему работает поиск.' : 'Пассажир его не видит, по нему работает поиск. Менять может только суперадмин.'}
-					>
-						<Input.TextArea autoSize={{ minRows: 3, maxRows: 12 }} readOnly={!superadmin} />
-					</Form.Item>
-				)}
+						{!isRoot && (
+							<label className="switch-row">
+								<Form.Item name="isHidden" valuePropName="checked" noStyle>
+									<Switch size="small" />
+								</Form.Item>
+								<span>
+									<div>Скрыть из меню</div>
+									<div className="muted">Пункта нет в списке вариантов, но раздел находится через поиск и переходы.</div>
+								</span>
+							</label>
+						)}
+					</div>
 
-				{node.type === 'link' && (
-					<Form.Item name="url" label="Адрес сайта" rules={[{ required: true, whitespace: true, message: 'Введите адрес' }]}>
-						<Input placeholder="https://" maxLength={2000} />
-					</Form.Item>
-				)}
-
-				{node.type === 'goto' && (
-					<Form.Item name="targetId" label="Куда ведет" rules={[{ required: true, message: 'Выберите раздел' }]}>
-						<Select options={targets} showSearch={{ optionFilterProp: 'label' }} placeholder="Выберите раздел" />
-					</Form.Item>
-				)}
-
-				<Form.Item
-					name="synonyms"
-					label="Как об этом спрашивают"
-					extra="Целые фразы, как их напишет пассажир: «как вернуть деньги за билет», а не отдельные слова. Enter добавляет фразу."
-				>
-					<Select mode="tags" open={false} suffixIcon={null} tokenSeparators={[]} />
-				</Form.Item>
-
-				{!isRoot && (
-					<>
-						<Form.Item name="isActive" valuePropName="checked" extra="Выключенный раздел со всеми вложенными бот не показывает и не ищет." className="compact-item">
-							<Checkbox>Включен</Checkbox>
-						</Form.Item>
-						<Form.Item name="isHidden" valuePropName="checked" extra="Пункта нет в списке вариантов, но раздел находится через поиск и переходы." className="compact-item">
-							<Checkbox>Скрыть из меню</Checkbox>
-						</Form.Item>
-					</>
-				)}
+					<Preview tree={tree} settings={settings} node={node} values={values} />
+				</div>
 
 				{save.isError && (
 					<Alert
-						className="form-alert"
+						className="node-error"
 						type="error"
 						title={errorText(save.error)}
 						action={save.error instanceof ConflictError ? <Button size="small" onClick={onRefresh}>Обновить</Button> : undefined}
@@ -303,13 +359,14 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 
 				<div className="form-bar">
 					<Button type="primary" htmlType="submit" disabled={!dirty} loading={save.isPending}>Сохранить</Button>
-					{dirty && <span className="muted">Есть несохраненные правки</span>}
-					<span className="form-bar-spacer" />
-					{!isRoot && <Button danger onClick={() => setDeleting(true)}>Удалить</Button>}
+					{dirty && (
+						<>
+							<Button onClick={() => form.resetFields()}>Отменить правки</Button>
+							<Badge status="warning" text="Есть несохранённые правки" />
+						</>
+					)}
 				</div>
 			</Form>
-
-			<Preview tree={tree} settings={settings} node={node} values={values} />
 
 			{deleting && (
 				<DeleteModal
@@ -324,6 +381,6 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 			)}
 
 			{modal}
-		</div>
+		</Card>
 	);
 };

@@ -1,16 +1,17 @@
+/* Вид задается темой Ant Design (theme.ts). Здесь — раскладка страниц и то, чего в ките нет: редактор и пузырь MAX */
+
 :root {
-	--bg: #f6f7f9;
-	--surface: #ffffff;
-	--border: #e2e5ea;
-	--text: #1d2330;
-	--muted: #6b7385;
-	--accent: #1f5fbf;
-	--accent-soft: #e8f0fc;
-	--danger: #c0392b;
-	font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--text-secondary: rgba(0, 0, 0, 0.65);
+	--text-muted: rgba(0, 0, 0, 0.45);
+	--split: #f0f0f0;
+	--primary: #2b51a9;
+	--primary-soft: #eef2fb;
+	--danger: #ff4d4f;
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
 	font-size: 14px;
-	color: var(--text);
-	background: var(--bg);
+	line-height: 1.5714;
+	color: rgba(0, 0, 0, 0.88);
+	background: #f5f5f5;
 }
 
 * {
@@ -19,12 +20,22 @@
 
 body {
 	margin: 0;
-	background: var(--bg);
+	background: #f5f5f5;
 }
 
-button {
-	font: inherit;
-	cursor: pointer;
+h1,
+h2 {
+	margin: 0;
+	font-weight: 600;
+}
+
+code {
+	padding: 1px 6px;
+	font-family: SFMono-Regular, Consolas, Menlo, monospace;
+	font-size: 12px;
+	background: rgba(150, 150, 150, 0.1);
+	border: 1px solid rgba(100, 100, 100, 0.2);
+	border-radius: 3px;
 }
 
 .center {
@@ -36,63 +47,24 @@ button {
 }
 
 .muted {
-	color: var(--muted);
+	color: var(--text-muted);
+}
+
+.secondary {
+	color: var(--text-secondary);
+}
+
+.small {
+	font-size: 12px;
+	line-height: 20px;
 }
 
 .error {
 	color: var(--danger);
 }
 
-.auth-card {
-	width: 100%;
-	max-width: 360px;
-}
-
 .form-alert {
 	margin-bottom: 16px;
-}
-
-.layout {
-	min-height: 100vh;
-	display: flex;
-	flex-direction: column;
-}
-
-.header {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 0 16px;
-	background: var(--surface);
-	border-bottom: 1px solid var(--border);
-}
-
-.brand {
-	font-weight: 600;
-}
-
-.nav {
-	flex: 1;
-	min-width: 0;
-	border-bottom: 0;
-}
-
-.page {
-	flex: 1;
-	padding: 16px 24px;
-}
-
-.page.narrow {
-	width: 100%;
-	max-width: 520px;
-	margin: 0 auto;
-	display: flex;
-	flex-direction: column;
-	gap: 16px;
-}
-
-.page-actions {
-	margin-bottom: 12px;
 }
 
 .row-actions {
@@ -101,48 +73,314 @@ button {
 	gap: 8px;
 }
 
-.content {
-	flex: 1;
-	display: grid;
-	grid-template-columns: minmax(280px, 380px) 1fr;
+/* Вход */
+
+.auth-card {
+	width: 400px;
+	max-width: 100%;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03), 0 1px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.auth-card .ant-card-body {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	padding: 40px 32px 32px;
+}
+
+.auth-head {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	text-align: center;
+}
+
+.auth-head img {
+	width: 72px;
+	height: 72px;
+}
+
+.auth-head h1 {
+	font-size: 24px;
+	line-height: 32px;
+}
+
+.auth-foot {
+	text-align: center;
+}
+
+/* Каркас: боковое меню и страница, которая прокручивается сама */
+
+.app {
+	height: 100vh;
+	overflow: hidden;
+}
+
+.app-sider {
+	border-right: 1px solid var(--split);
+}
+
+.app-sider .ant-layout-sider-children {
+	display: flex;
+	flex-direction: column;
 	min-height: 0;
 }
 
-.tree {
-	position: sticky;
-	top: 0;
-	max-height: 100vh;
+.app-sider .ant-layout-sider-trigger {
+	border-top: 1px solid var(--split);
+	border-right: 1px solid var(--split);
+}
+
+.app-logo {
+	flex: none;
+	height: 64px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 0 20px;
+	overflow: hidden;
+	font-size: 16px;
+	font-weight: 600;
+	white-space: nowrap;
+	color: inherit;
+}
+
+.app-logo:hover {
+	color: inherit;
+}
+
+.app-logo img {
+	flex: none;
+	width: 32px;
+	height: 32px;
+}
+
+.app-menu {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	border-inline-end: 0 !important;
+}
+
+.menu-label {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.app-user {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 12px 16px;
+	border-top: 1px solid var(--split);
+}
+
+.app-user-name {
+	flex: 1;
+	min-width: 0;
+	line-height: 20px;
+	color: inherit;
+}
+
+.app-user-name:hover {
+	color: inherit;
+}
+
+.app-user-name > div {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.app-main {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.person-avatar {
+	flex: none;
+	font-weight: 600;
+}
+
+.page-header {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 16px 24px;
+	background: #fff;
+	border-bottom: 1px solid var(--split);
+}
+
+.page-header.with-tabs {
+	padding-bottom: 0;
+}
+
+.page-title {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px 16px;
+}
+
+.page-title h1 {
+	font-size: 20px;
+	line-height: 28px;
+}
+
+.page-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px 16px;
+}
+
+.page-tabs .ant-tabs-nav {
+	margin: 0;
+}
+
+.page-tabs .ant-tabs-nav::before {
+	border-bottom: 0;
+}
+
+.page-tabs .ant-tabs-content-holder {
+	display: none;
+}
+
+.page-body {
+	flex: 1;
+	min-height: 0;
 	overflow: auto;
+	padding: 16px 24px 24px;
+}
+
+.page-body.narrow {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 16px;
+}
+
+.page-body.narrow > * {
+	flex: none;
+	width: 100%;
+	max-width: 520px;
+}
+
+.page-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.table-card > .ant-card-body {
+	padding: 0;
+}
+
+.person {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.person.off {
+	opacity: 0.55;
+}
+
+.person.small-gap {
+	display: inline-flex;
+	gap: 8px;
+}
+
+/* Контент: дерево и раздел прокручиваются отдельно, кнопка «Сохранить» всегда на виду */
+
+.page-body.content {
+	overflow: hidden;
+}
+
+.content-split {
+	height: 100%;
+}
+
+/* Зазор между карточками: сама полоса разделителя тоньше */
+.content-split > .ant-splitter-panel {
+	overflow: hidden;
+}
+
+.content-split > .ant-splitter-panel:first-child {
+	padding-right: 7px;
+}
+
+.content-split > .ant-splitter-panel:last-child {
+	padding-left: 7px;
+}
+
+.content-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	height: 100%;
+	overflow: auto;
+}
+
+.content-stack .tree-card {
+	flex: none;
+	height: 45vh;
+}
+
+.content-stack .node-card {
+	flex: none;
+	height: auto;
+}
+
+.content-stack .node-body {
+	overflow: visible;
+}
+
+.content-stack .form-bar {
+	position: sticky;
+	bottom: 0;
+}
+
+.tree-card,
+.node-card {
+	height: 100%;
+}
+
+.tree-card > .ant-card-body {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
 	padding: 12px 8px;
-	background: var(--surface);
-	border-right: 1px solid var(--border);
 }
 
 .tree-toolbar {
+	flex: none;
 	display: flex;
 	gap: 8px;
-	margin-bottom: 8px;
+	padding: 0 4px 12px;
 }
 
-.apply-status {
-	margin-bottom: 8px;
-	padding: 4px 8px;
-	font-size: 12px;
-	color: var(--muted);
-	background: var(--bg);
-	border-radius: 5px;
-}
-
-.apply-status.warn {
-	color: #8a5a00;
-	background: #fff7e0;
+.tree-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
 }
 
 .tree-row {
 	display: inline-flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 4px;
+	gap: 6px;
 }
 
 .tree-row .ant-tag {
@@ -151,73 +389,221 @@ button {
 	line-height: 16px;
 }
 
-.tree-title.inactive {
-	color: var(--muted);
+.tree-root {
+	font-weight: 500;
+}
+
+.inactive {
+	color: rgba(0, 0, 0, 0.25);
 	text-decoration: line-through;
 }
 
-.panel {
-	min-width: 0;
-	padding: 16px 24px;
+.node-card > .ant-card-body {
+	height: 100%;
+	padding: 0;
 }
 
-.node-editor {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
-	align-items: start;
-	gap: 24px;
+.node-empty > .ant-card-body {
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .node-form {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+}
+
+.node-head {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 16px 24px;
+	border-bottom: 1px solid var(--split);
+}
+
+.node-head .ant-breadcrumb {
+	font-size: 12px;
+}
+
+.node-head-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+}
+
+.node-head-row h2 {
+	flex: 1;
+	min-width: 200px;
+	font-size: 20px;
+	line-height: 28px;
+}
+
+.node-switch {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+}
+
+.node-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: 24px;
+	padding: 24px;
+}
+
+.node-fields {
+	flex: 1 1 420px;
 	min-width: 0;
 }
 
-.compact-item {
-	margin-bottom: 8px;
+.form-section {
+	margin: 0 0 16px !important;
+	font-weight: 600 !important;
 }
 
-.form-bar {
-	position: sticky;
-	bottom: 0;
-	z-index: 1;
+.form-section .ant-divider-rail-start {
+	display: none;
+}
+
+.form-section .ant-divider-inner-text {
+	padding-inline-start: 0;
+}
+
+.attachments-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+}
+
+.attachment-field {
 	display: flex;
-	align-items: center;
-	gap: 12px;
-	margin-top: 16px;
-	padding: 12px 0;
-	background: var(--bg);
-	border-top: 1px solid var(--border);
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
 }
 
-.form-bar-spacer {
-	flex: 1;
+.attachment-field > span:has(.ant-upload-drag) {
+	width: 100%;
 }
 
-.message-editor {
-	background: var(--surface);
-	border: 1px solid var(--border);
+.attachment-icon {
+	font-size: 32px;
+	line-height: 40px;
+	color: var(--primary);
+}
+
+.attachment-image {
+	display: block;
+	max-width: 100%;
+	max-height: 200px;
+	margin: 0 auto 4px;
 	border-radius: 6px;
 }
 
+.attachment-file {
+	display: inline-block;
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+
+.switch-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	cursor: pointer;
+}
+
+.switch-row .ant-switch {
+	flex: none;
+	margin-top: 3px;
+}
+
+.node-error {
+	flex: none;
+	margin: 0 24px 12px;
+}
+
+.form-bar {
+	flex: none;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 24px;
+	background: #fff;
+	border-top: 1px solid var(--split);
+	border-radius: 0 0 8px 8px;
+}
+
+.form-footer {
+	position: sticky;
+	bottom: 0;
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.form-bar.floating {
+	border: 1px solid var(--split);
+	border-radius: 8px;
+}
+
+/* Редактор сообщения */
+
+.message-editor {
+	background: #fff;
+	border: 1px solid #d9d9d9;
+	border-radius: 6px;
+	transition: border-color 0.2s, box-shadow 0.2s;
+}
+
 .message-editor:focus-within {
-	border-color: var(--accent);
+	border-color: var(--primary);
+	box-shadow: 0 0 0 2px rgba(43, 81, 169, 0.1);
 }
 
 .editor-toolbar {
 	display: flex;
 	flex-wrap: wrap;
-	justify-content: space-between;
-	gap: 8px;
-	padding: 6px 8px;
-	border-bottom: 1px solid var(--border);
+	align-items: center;
+	gap: 4px;
+	padding: 4px 6px;
+	border-bottom: 1px solid var(--split);
+}
+
+.editor-toolbar .ant-divider {
+	margin: 0 4px;
+}
+
+.editor-toolbar-spacer {
+	flex: 1;
+}
+
+.editor-toolbar .editor-on {
+	color: var(--primary);
+	background: var(--primary-soft);
 }
 
 .message-editor .ProseMirror {
-	min-height: 140px;
+	min-height: 120px;
 	max-height: 60vh;
 	overflow: auto;
-	padding: 8px 12px;
+	padding: 8px 11px;
 	outline: none;
+}
+
+.message-editor.compact .ProseMirror {
+	min-height: 0;
 }
 
 .message-editor p,
@@ -239,109 +625,121 @@ button {
 .message-view blockquote {
 	margin: 0;
 	padding-left: 10px;
-	border-left: 3px solid var(--border);
+	border-left: 3px solid #d9d9d9;
 }
 
-.message-editor a,
-.message-view a {
-	color: var(--accent);
+.message-editor a {
+	color: var(--primary);
 	text-decoration: underline;
 }
 
+/* Предпросмотр: цвета и шрифт — как в MAX, а не как в админке */
+
 .preview {
+	flex: 1 1 300px;
+	max-width: 400px;
+	min-width: 0;
 	position: sticky;
-	top: 16px;
+	top: 0;
+}
+
+.preview-note {
+	margin: 0 0 8px;
+}
+
+.preview-alert {
+	margin-top: 8px;
+}
+
+.max-chat {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
-}
-
-.preview h3 {
-	margin: 0;
-	font-size: 14px;
-}
-
-.preview > p {
-	margin: 0;
-	font-size: 12px;
+	gap: 6px;
+	margin-bottom: 12px;
+	padding: 12px;
+	font-family: system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Apple Color Emoji', 'Helvetica Neue', sans-serif;
+	background: #edeef2;
+	border-radius: 8px;
 }
 
 .bubble {
+	align-self: flex-start;
+	max-width: 100%;
 	padding: 8px 12px;
+	font-size: 16px;
+	line-height: 20px;
+	letter-spacing: -0.31px;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
-	background: var(--surface);
-	border: 1px solid var(--border);
+	color: #060708;
+	background: #fff;
+	border-radius: 16px;
+}
+
+.bubble img {
+	display: block;
+	width: 100%;
+	margin-bottom: 6px;
 	border-radius: 10px;
 }
 
-.attachment {
-	margin: 4px 0;
-	padding: 6px 8px;
+.bubble a {
+	color: #007aff;
+	text-decoration: none;
+}
+
+.bubble blockquote {
+	border-left: 2px solid #007aff;
+}
+
+.bubble-file {
+	margin-top: 6px;
+	font-size: 13px;
+	color: rgba(6, 7, 8, 0.68);
+}
+
+.bubble-time {
+	float: right;
+	margin: 6px 0 -4px 10px;
 	font-size: 12px;
-	color: var(--muted);
-	background: var(--bg);
-	border-radius: 5px;
+	line-height: 16px;
+	letter-spacing: 0;
+	color: rgba(6, 7, 8, 0.52);
 }
 
-@media (max-width: 1100px) {
-	.node-editor {
-		grid-template-columns: minmax(0, 1fr);
-	}
+/* Вопросы */
 
-	.preview {
-		position: static;
-	}
+.stat-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+	gap: 16px;
 }
 
-@media (max-width: 720px) {
-	.content {
-		grid-template-columns: 1fr;
-	}
-
-	.tree {
-		position: static;
-		max-height: 45vh;
-		border-right: 0;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.panel,
-	.page {
-		padding: 16px;
-	}
-}
-
-.settings-form {
-	max-width: 720px;
-}
-
-.settings-form .message-editor .ProseMirror {
-	min-height: 64px;
-}
-
-.attachment-field {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 8px;
-}
-
-.attachment-image {
-	display: block;
-	max-width: 100%;
-	max-height: 240px;
-	margin-bottom: 4px;
-	border: 1px solid var(--border);
-	border-radius: 6px;
+.stat-card > .ant-card-body {
+	padding: 20px 24px;
 }
 
 .questions-bar {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 8px 16px;
-	margin-bottom: 12px;
+	gap: 12px 16px;
+	padding: 16px;
+}
+
+.questions-hint {
+	flex: 1;
+	min-width: 200px;
+}
+
+.questions-search {
+	width: 260px;
+	max-width: 100%;
+}
+
+.muted-badge .ant-badge-count {
+	color: var(--text-secondary);
+	box-shadow: none;
 }
 
 .question-text {
@@ -361,7 +759,7 @@ button {
 }
 
 .check-tab {
-	max-width: 720px;
+	max-width: 760px;
 }
 
 .check-tab .muted {
@@ -373,6 +771,91 @@ button {
 	padding-left: 20px;
 }
 
+/* Настройки */
+
+.settings {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: 24px;
+}
+
+.settings-form {
+	flex: 999 1 640px;
+	min-width: 0;
+	max-width: 960px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+/* Панель сохранения прилегает к низу экрана, а не висит над прокручиваемым текстом */
+.page-body:has(.settings-texts:not([hidden])) {
+	padding-bottom: 0;
+	/* Поле, к которому перешли с клавиатуры, не прячется под панелью */
+	scroll-padding-bottom: 88px;
+}
+
+.settings-form {
+	padding-bottom: 16px;
+}
+
+.settings-form .ant-card-body {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+}
+
+.settings-anchor {
+	flex: 1 1 200px;
+	max-width: 260px;
+	position: sticky;
+	top: 0;
+}
+
+.text-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 24px;
+}
+
+.text-row-label {
+	flex: 1 1 200px;
+	max-width: 240px;
+}
+
+.text-row-field {
+	flex: 999 1 360px;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.text-row-field > .ant-form-item,
+.support-hours .ant-form-item {
+	margin-bottom: 0;
+}
+
+.required-mark::before {
+	margin-right: 4px;
+	font-family: SimSun, sans-serif;
+	color: var(--danger);
+	content: '*';
+}
+
+.handoff-target {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.handoff-target .ant-select {
+	flex: 1;
+	min-width: 220px;
+}
+
 .support-hours {
 	display: flex;
 	gap: 16px;
@@ -382,34 +865,79 @@ button {
 	width: 120px;
 }
 
-/* Чат занимает весь экран: прокручиваются только его колонки */
-.layout:has(.support) {
-	height: 100vh;
-	min-height: 0;
+.what-changed {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.what-changed .ant-tag {
+	margin: 0;
+}
+
+.restore-title {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+}
+
+.warning-icon {
+	font-size: 22px;
+	color: #faad14;
+}
+
+.diff-block {
+	margin-top: 12px;
+}
+
+.diff-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 4px;
+}
+
+.diff-head .ant-tag {
+	margin: 0;
+}
+
+/* Чат поддержки: занимает весь экран, прокручиваются только его колонки */
+
+.page-body.support-page {
+	overflow: hidden;
+	display: flex;
 }
 
 .support {
 	flex: 1;
-	min-height: 0;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.support > .ant-card-body {
+	height: 100%;
 	display: grid;
-	grid-template-columns: 320px minmax(0, 1fr) 280px;
+	grid-template-columns: 340px minmax(0, 1fr) 280px;
 	grid-template-rows: minmax(0, 1fr);
+	padding: 0;
 }
 
 .support-list {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
-	background: var(--surface);
-	border-right: 1px solid var(--border);
+	border-right: 1px solid var(--split);
 }
 
-.support-tabs {
-	padding: 0 12px;
-}
-
-.support-tabs .ant-tabs-nav {
-	margin-bottom: 0;
+.support-list-head {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 16px;
+	border-bottom: 1px solid var(--split);
 }
 
 .support-items {
@@ -418,122 +946,192 @@ button {
 	overflow-y: auto;
 }
 
-.support-item {
-	display: block;
-	padding: 10px 12px;
-	color: inherit;
-	border-bottom: 1px solid var(--border);
+.support-empty {
+	margin: 0;
+	padding: 24px;
+	text-align: center;
 }
 
-.support-item:hover,
-.support-item.selected {
-	background: var(--bg);
-}
-
-.support-item-head {
+.ticket {
 	display: flex;
-	justify-content: space-between;
+	gap: 12px;
+	padding: 12px 16px;
+	color: inherit;
+	border-bottom: 1px solid var(--split);
+}
+
+.ticket:hover {
+	color: inherit;
+	background: #fafafa;
+}
+
+.ticket.selected {
+	background: var(--primary-soft);
+	box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.ticket-body {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.ticket-head {
+	display: flex;
+	align-items: baseline;
 	gap: 8px;
 }
 
-.support-item-name {
+.ticket-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
 	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ticket-preview {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.support-item-preview {
-	color: var(--muted);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+.ticket-foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 2px 6px;
+}
+
+.ticket-foot .ant-badge-status-text {
+	font-size: 12px;
+}
+
+.ticket-foot .ant-tag {
+	margin: 0;
+	font-size: 11px;
+	line-height: 16px;
+}
+
+.long-wait {
+	color: #d46b08;
 }
 
 .support-list-foot {
+	flex: none;
 	padding: 8px 12px;
-	border-top: 1px solid var(--border);
+	border-top: 1px solid var(--split);
 }
 
 .support-thread {
 	display: flex;
 	flex-direction: column;
+	min-width: 0;
 	min-height: 0;
+	border-right: 1px solid var(--split);
 }
 
-.support-thread-head {
+.support-none {
+	align-items: center;
+	justify-content: center;
+}
+
+.thread-head {
+	flex: none;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 20px;
+	border-bottom: 1px solid var(--split);
+}
+
+.thread-title {
+	flex: 1;
+	min-width: 200px;
+}
+
+.thread-name {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 8px;
-	padding: 8px 16px;
-	background: var(--surface);
-	border-bottom: 1px solid var(--border);
 }
 
-.support-thread-title {
-	flex: 1;
-	min-width: 160px;
-	font-weight: 500;
+.thread-name h2 {
+	font-size: 16px;
+	line-height: 24px;
 }
 
-.support-messages {
+.thread-name .ant-tag {
+	margin: 0;
+}
+
+.thread-messages {
 	flex: 1;
 	min-height: 0;
 	overflow-y: auto;
 	display: flex;
 	flex-direction: column;
+	gap: 10px;
+	padding: 16px 20px;
+	background: #fafafa;
+}
+
+.bot-dialog {
+	flex: none;
+	background: #fff;
+}
+
+.bot-dialog .ant-collapse-title {
+	font-weight: 400;
+}
+
+.bot-messages,
+.bot-step {
+	display: flex;
+	flex-direction: column;
 	gap: 8px;
-	padding: 16px;
 }
 
-.support-history {
-	margin-bottom: 8px;
-}
-
-.support-history-question {
-	font-weight: 500;
-	white-space: pre-wrap;
-}
-
-.support-history-answer {
-	margin: 2px 0 8px;
-	color: var(--muted);
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-
-.support-message {
+.message {
 	align-self: flex-start;
-	max-width: 70%;
+	flex: none;
+	max-width: 72%;
 	padding: 8px 12px;
-	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: 8px;
+	line-height: 22px;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
+	background: #fff;
+	border: 1px solid var(--split);
+	border-radius: 12px;
+	border-bottom-left-radius: 4px;
 }
 
-.support-message.staff {
+.message.bot,
+.message.staff {
 	align-self: flex-end;
-	background: var(--selected, #e6f4ff);
+	border-color: transparent;
+	border-radius: 12px;
+	border-bottom-right-radius: 4px;
 }
 
-.support-message.failed {
-	border-color: #ff4d4f;
+.message.bot {
+	background: rgba(0, 0, 0, 0.04);
 }
 
-.support-message-meta {
-	margin-top: 4px;
-	font-size: 12px;
-	color: var(--muted);
+.message.staff {
+	background: var(--primary-soft);
 }
 
-.support-message-meta.error {
-	color: #cf1322;
+.message.failed {
+	border-color: var(--danger);
 }
 
-.support-message img {
+.message img {
 	display: block;
 	max-width: 100%;
 	max-height: 280px;
@@ -541,70 +1139,269 @@ button {
 	border-radius: 6px;
 }
 
-.support-system {
-	align-self: center;
-	font-size: 12px;
-	color: var(--muted);
-}
-
-.support-composer {
-	padding: 8px 16px 12px;
-	background: var(--surface);
-	border-top: 1px solid var(--border);
-}
-
-.support-composer-row {
+.message-meta {
 	display: flex;
-	align-items: flex-end;
-	gap: 8px;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+	margin-top: 2px;
+	font-size: 12px;
+	line-height: 20px;
+	color: var(--text-muted);
 }
 
-.support-composer-files {
+.message-meta.error {
+	color: #cf1322;
+}
+
+.delivered {
+	color: var(--primary);
+}
+
+.system-line {
+	flex: none;
+	align-self: center;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	line-height: 20px;
+	color: var(--text-muted);
+	text-align: center;
+}
+
+.composer {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 12px 20px 16px;
+	border-top: 1px solid var(--split);
+}
+
+.composer-files {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 4px;
-	margin-bottom: 6px;
+}
+
+.composer-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.composer-hint {
+	flex: 1;
+	min-width: 180px;
+}
+
+.template-option {
+	width: 420px;
+	max-width: 70vw;
+	line-height: 20px;
+	white-space: normal;
+}
+
+.template-option-text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.thread-note {
+	flex: none;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	padding: 16px 20px;
+	border-top: 1px solid var(--split);
+}
+
+.thread-note > span:not(.note-icon) {
+	flex: 1;
+}
+
+.note-icon {
+	font-size: 16px;
+	color: var(--primary);
 }
 
 .support-card {
 	min-height: 0;
 	overflow-y: auto;
-	padding: 16px;
-	background: var(--surface);
-	border-left: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 20px;
 }
 
-.support-card h3 {
-	margin: 0 0 8px;
+.passenger-head {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	text-align: center;
 }
 
-.support-card dt {
-	margin-top: 8px;
-	font-size: 12px;
-	color: var(--muted);
+.passenger-head h2 {
+	font-size: 16px;
+	line-height: 24px;
 }
 
-.support-card dd {
-	margin: 0;
+.card-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.card-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.card-row > span:last-child {
+	overflow-wrap: anywhere;
+	text-align: right;
+}
+
+.card-divider {
+	margin: 0 !important;
+}
+
+.past-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-weight: 600;
+}
+
+.past-ticket {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 10px 12px;
+	color: inherit;
+	border: 1px solid var(--split);
+	border-radius: 8px;
+}
+
+.past-ticket:hover {
+	color: inherit;
+	background: #fafafa;
+}
+
+.past-topic {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.past-topic > span:first-child {
 	overflow-wrap: anywhere;
 }
 
-.support-past {
-	display: block;
-	padding: 6px 0;
-	border-top: 1px solid var(--border);
+.support-transfer {
+	width: 100%;
+	margin-bottom: 8px;
 }
 
-@media (max-width: 1100px) {
-	.support {
-		grid-template-columns: 260px minmax(0, 1fr);
+/* Мои шаблоны */
+
+.templates {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.template-form {
+	border-color: var(--primary);
+	box-shadow: 0 0 0 2px rgba(43, 81, 169, 0.1);
+}
+
+.template-form .ant-card-body {
+	padding: 16px;
+}
+
+.template-form .ant-form-item {
+	margin-bottom: 16px;
+}
+
+.template-card .ant-card-body {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 12px 16px;
+}
+
+.template-body {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.template-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.template-head b {
+	font-weight: 500;
+}
+
+.template-text {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow-wrap: anywhere;
+}
+
+/* Узкие экраны */
+
+@media (max-width: 1200px) {
+	.support > .ant-card-body {
+		grid-template-columns: 300px minmax(0, 1fr);
 	}
 
 	.support-card {
 		display: none;
 	}
+
+	.support-thread {
+		border-right: 0;
+	}
 }
 
-.support-transfer {
-	width: 100%;
+@media (max-width: 767px) {
+	.page-header {
+		padding-right: 16px;
+		padding-left: 16px;
+	}
+
+	.page-body {
+		padding: 12px 16px 16px;
+	}
+
+	.attachments-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.support > .ant-card-body {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: 40% minmax(0, 1fr);
+	}
+
+	.support-list {
+		border-right: 0;
+		border-bottom: 1px solid var(--split);
+	}
 }

@@ -30,9 +30,13 @@ export const InvitePage = () => {
 
 	return (
 		<div className="center">
-			<Card className="auth-card" title="Задайте пароль">
-				<p>{invite.data.fullName}, ваш логин для входа: <b>{invite.data.login}</b></p>
-				<Form<{ password: string; }> layout="vertical" requiredMark={false} onFinish={values => accept.mutate(values.password)}>
+			<Card className="auth-card">
+				<div className="auth-head">
+					<img src="/logo.png" alt="Логотип АО «АК «ЖДЯ»" />
+					<h1>Задайте пароль</h1>
+					<div className="muted">{invite.data.fullName}, ваш логин для входа: <b>{invite.data.login}</b></div>
+				</div>
+				<Form<{ password: string; }> layout="vertical" size="large" requiredMark={false} onFinish={values => accept.mutate(values.password)}>
 					<PasswordFields />
 					{accept.isError && <Alert className="form-alert" type="error" title={errorText(accept.error)} />}
 					<Button type="primary" htmlType="submit" block loading={accept.isPending}>Сохранить и войти</Button>

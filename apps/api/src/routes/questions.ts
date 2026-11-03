@@ -1,9 +1,9 @@
 // Вопросы пассажиров и проверка поиска. Их видят суперадмин и админ
 
-import { eq } from 'drizzle-orm';
+import { and, count, eq, gte, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 
-import type { PassengerQuestion, QuestionReviewRequest, SearchCheckRequest, SearchCheckResult } from '@rw/core';
+import type { PassengerQuestion, QuestionReviewRequest, QuestionStats, SearchCheckRequest, SearchCheckResult } from '@rw/core';
 import { db, questionReviews } from '@rw/db';
 import { errorMessage } from '@rw/runtime';
 
@@ -44,6 +44,13 @@ export const questionsRoutes: FastifyPluginAsync = async app => {
 	app.addHook('preHandler', requireRole('superadmin', 'admin'));
 
 	app.get('/', (): Promise<PassengerQuestion[]> => loadQuestions());
+
+	app.get('/stats', async (): Promise<QuestionStats> => {
+		const [row] = await db.select({ resolvedWeek: count() }).from(questionReviews)
+			.where(and(eq(questionReviews.status, 'resolved'), gte(questionReviews.reviewedAt, sql`now() - interval '7 days'`)));
+
+		return row;
+	});
 
 	app.post<{ Body: QuestionReviewRequest; }>('/reviews', { schema: { body: reviewBody } }, async (request, reply) => {
 		const values = { ...request.body, adminId: request.admin!.id, reviewedAt: new Date() };

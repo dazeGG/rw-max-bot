@@ -101,6 +101,11 @@ export type PassengerQuestion = {
 	suggestions: SearchCheckNode[];
 };
 
+export type QuestionStats = {
+	// Сколько вопросов за неделю сотрудники разобрали: добавили фразу к разделу или создали раздел
+	resolvedWeek: number;
+};
+
 export type QuestionReviewRequest = {
 	key: string;
 	status: QuestionReviewStatus;
@@ -125,7 +130,11 @@ export type SearchCheckResult =
 
 export type SupportStatus = 'queue' | 'active' | 'closed';
 
-export type SupportTab = 'queue' | 'mine' | 'closed' | 'all';
+// open — свободные и в работе: поддержка видит из них только свои, суперадмин и админ — все
+export type SupportTab = 'open' | 'mine' | 'closed';
+
+// Почему пассажир пришел к оператору: бот не понял, не подошли варианты уточнения или попросил сам
+export type SupportReason = 'unrecognized' | 'noOption' | 'asked';
 
 // unavailable — пассажир прислал то, что нельзя показать в чате: видео, стикер, запрещенный тип файла
 export type SupportAttachment = {
@@ -142,7 +151,14 @@ export type SupportTicketSummary = {
 	assigneeId: number | null;
 	assigneeName: string | null;
 	preview: string | null;
+	// Первое сообщение пассажира: тема обращения
+	topic: string | null;
 	waiting: boolean;
+	// С какого момента пассажир ждет ответа и сколько сообщений написал после последнего ответа сотрудника
+	waitingSince: string | null;
+	unanswered: number;
+	reason: SupportReason | null;
+	botMisses: number;
 	createdAt: string;
 	lastMessageAt: string;
 	closedAt: string | null;
@@ -173,6 +189,9 @@ export type SupportTicketDetail = SupportTicketSummary & {
 		username: string | null;
 		firstSeenAt: string | null;
 		isBlocked: boolean;
+		firstTicketAt: string;
+		ticketCount: number;
+		botQuestions: number;
 	};
 	past: SupportTicketSummary[];
 	history: SupportHistoryEntry[];
@@ -180,9 +199,19 @@ export type SupportTicketDetail = SupportTicketSummary & {
 
 export type SupportCounts = {
 	queue: number;
+	open: number;
 	mine: number;
 	waiting: number;
 };
+
+export type SupportTemplate = {
+	id: number;
+	title: string;
+	command: string;
+	text: string;
+};
+
+export type SupportTemplateRequest = Omit<SupportTemplate, 'id'>;
 
 export type SupportReplyRequest = {
 	text: string;

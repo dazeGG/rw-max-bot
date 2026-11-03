@@ -3,10 +3,11 @@
 
 import path from 'node:path';
 
-import { and, asc, desc, eq, inArray, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, lt, min, ne, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 
 import { isSupportCancel, ROOT_CODE, supportOpenedText } from '@rw/core';
-import type { AdminUser, DialogUser, SupportAttachment, SupportHistoryEntry, SupportInboundRequest, SupportInboundResult, SupportTicketDetail, SupportTicketSummary, SupportCounts, SupportStatus, SupportTab } from '@rw/core';
+import type { AdminUser, DialogUser, SupportAttachment, SupportHistoryEntry, SupportInboundRequest, SupportInboundResult, SupportTicketDetail, SupportReason, SupportTicketSummary, SupportCounts, SupportStatus, SupportTab } from '@rw/core';
 import { admins, contentNodes, db, dialogEvents, sessions, subscribers, supportMessages, supportTickets } from '@rw/db';
 import { errorMessage } from '@rw/runtime';
 
@@ -25,6 +26,8 @@ const SILENCE_HOURS = 24;
 const HISTORY_LIMIT = 10;
 const HISTORY_HOURS = 24;
 const LIST_LIMIT = 100;
+// Какие сообщения пассажира относятся к этому обращению к оператору
+const REASON_WINDOW_MS = 60 * 60 * 1000;
 
 const isManager = (actor: AdminUser) => actor.role !== 'support';
 
@@ -34,10 +37,31 @@ const passengerName = (row: { firstName: string | null; lastName: string | null;
 const addSystemMessage = (tx: Pick<typeof db, 'insert'>, ticketId: number, text: string) =>
 	tx.insert(supportMessages).values({ ticketId, sender: 'system', text });
 
+// Сообщения бота перед обращением, от новых к старым. Оператор выбран следующим сообщением, поэтому
+// уточнение прямо перед ним значит, что не подошел ни один вариант: другие пункты уточнения к оператору не ведут
+export const ticketReason = (events: { type: string; data: Record<string, unknown>; }[]): { reason: SupportReason; misses: number; } => {
+	const misses = events.filter(event => event.type === 'unrecognized').length;
+	const [last] = events;
+
+	if (last?.type === 'clarify' && 'handoff' in last.data) {
+		return { reason: 'noOption', misses };
+	}
+
+	return { reason: misses > 0 ? 'unrecognized' : 'asked', misses };
+};
+
+const loadReason = async (userId: number, now: Date) => ticketReason(await db.select({ type: dialogEvents.type, data: dialogEvents.data })
+	.from(dialogEvents)
+	.where(and(eq(dialogEvents.userId, userId), gte(dialogEvents.createdAt, new Date(now.getTime() - REASON_WINDOW_MS))))
+	.orderBy(desc(dialogEvents.createdAt), desc(dialogEvents.id))
+	.limit(HISTORY_LIMIT));
+
 // Обращение открывается при выборе «Написать оператору». Если оно уже открыто, второе не появится
 export const openTicket = async (user: DialogUser, now = new Date()): Promise<string> => {
+	const { reason, misses } = await loadReason(user.id, now);
+
 	const [created] = await db.insert(supportTickets)
-		.values({ userId: user.id, status: 'queue' })
+		.values({ userId: user.id, status: 'queue', openReason: reason, botMisses: misses })
 		.onConflictDoNothing({ target: supportTickets.userId, where: sql`status <> 'closed'` })
 		.returning();
 
@@ -108,6 +132,13 @@ export const receiveMessage = async ({ userId, text, mid, attachments, start }: 
 	return { action: outcome.action };
 };
 
+const unansweredMessages = (value: SQL) => sql`
+	select ${value} from support_messages m
+	where m.ticket_id = support_tickets.id and m.sender = 'passenger' and m.id > coalesce((
+		select max(s.id) from support_messages s where s.ticket_id = support_tickets.id and s.sender = 'staff'
+	), 0)
+`;
+
 const summaryColumns = {
 	id: supportTickets.id,
 	userId: supportTickets.userId,
@@ -118,6 +149,8 @@ const summaryColumns = {
 	lastMessageAt: supportTickets.lastMessageAt,
 	lastSender: supportTickets.lastSender,
 	closedAt: supportTickets.closedAt,
+	openReason: supportTickets.openReason,
+	botMisses: supportTickets.botMisses,
 	firstName: subscribers.firstName,
 	lastName: subscribers.lastName,
 	preview: sql<string | null>`(
@@ -126,6 +159,14 @@ const summaryColumns = {
 		where m.ticket_id = support_tickets.id and m.sender <> 'system'
 		order by m.id desc limit 1
 	)`,
+	topic: sql<string | null>`(
+		select m.text from support_messages m
+		where m.ticket_id = support_tickets.id and m.sender = 'passenger' and m.text <> ''
+		order by m.id limit 1
+	)`,
+	unanswered: sql<number>`(${unansweredMessages(sql`count(*)::int`)})`,
+	// Драйвер отдает дату из подзапроса строкой
+	waitingSince: sql<string | null>`(${unansweredMessages(sql`min(m.created_at)`)})`,
 };
 
 type SummaryRow = {
@@ -138,9 +179,14 @@ type SummaryRow = {
 	lastMessageAt: Date;
 	lastSender: string | null;
 	closedAt: Date | null;
+	openReason: string | null;
+	botMisses: number;
 	firstName: string | null;
 	lastName: string | null;
 	preview: string | null;
+	topic: string | null;
+	unanswered: number;
+	waitingSince: string | null;
 };
 
 const toSummary = (row: SummaryRow): SupportTicketSummary => ({
@@ -150,8 +196,14 @@ const toSummary = (row: SummaryRow): SupportTicketSummary => ({
 	assigneeId: row.assigneeId,
 	assigneeName: row.assigneeName,
 	preview: row.preview,
+	topic: row.topic,
 	// Пассажир написал последним: ответа ждет он
 	waiting: row.status !== 'closed' && row.lastSender !== 'staff',
+	// Пока пассажир ничего не написал, он ждет с момента, когда выбрал оператора
+	waitingSince: row.status === 'closed' || row.lastSender === 'staff' ? null : new Date(row.waitingSince ?? row.createdAt).toISOString(),
+	unanswered: row.status === 'closed' ? 0 : row.unanswered,
+	reason: row.openReason as SupportReason | null,
+	botMisses: row.botMisses,
 	createdAt: row.createdAt.toISOString(),
 	lastMessageAt: row.lastMessageAt.toISOString(),
 	closedAt: row.closedAt?.toISOString() ?? null,
@@ -162,21 +214,30 @@ const selectSummaries = () => db.select(summaryColumns).from(supportTickets)
 	.leftJoin(admins, eq(admins.id, supportTickets.assigneeId));
 
 // Поддержка видит очередь и свои обращения, закрытые — свои. Обращения коллег в работе видят только суперадмин и админ
-export const listTickets = async (tab: SupportTab, actor: AdminUser): Promise<SupportTicketSummary[]> => {
-	if (tab === 'all' && !isManager(actor)) {
-		throw new RuleError(403, 'Недостаточно прав');
-	}
+export const listTickets = async (tab: SupportTab, actor: AdminUser, search = ''): Promise<SupportTicketSummary[]> => {
+	const pattern = `%${search.trim().replace(/[\\%_]/g, '\\$&')}%`;
+	const found = search.trim()
+		? sql`(
+			concat_ws(' ', ${subscribers.firstName}, ${subscribers.lastName}) ilike ${pattern}
+			or exists (select 1 from support_messages m where m.ticket_id = support_tickets.id and m.sender <> 'system' and m.text ilike ${pattern})
+		)`
+		: undefined;
 
-	const rows = tab === 'queue'
-		// Первым берут того, кто ждет дольше
-		? await selectSummaries().where(eq(supportTickets.status, 'queue')).orderBy(asc(supportTickets.createdAt)).limit(LIST_LIMIT)
+	const rows = tab === 'open'
+		? await selectSummaries()
+			.where(and(
+				ne(supportTickets.status, 'closed'),
+				isManager(actor) ? undefined : or(eq(supportTickets.status, 'queue'), eq(supportTickets.assigneeId, actor.id)),
+				found,
+			))
+			// Сверху свободные: первым берут того, кто ждет дольше
+			.orderBy(sql`case when ${supportTickets.status} = 'queue' then ${supportTickets.createdAt} end asc nulls last`, desc(supportTickets.lastMessageAt))
+			.limit(LIST_LIMIT)
 		: tab === 'mine'
-			? await selectSummaries().where(and(eq(supportTickets.status, 'active'), eq(supportTickets.assigneeId, actor.id))).orderBy(desc(supportTickets.lastMessageAt)).limit(LIST_LIMIT)
-			: tab === 'all'
-				? await selectSummaries().where(ne(supportTickets.status, 'closed')).orderBy(desc(supportTickets.lastMessageAt)).limit(LIST_LIMIT)
-				: await selectSummaries()
-					.where(and(eq(supportTickets.status, 'closed'), isManager(actor) ? undefined : eq(supportTickets.assigneeId, actor.id)))
-					.orderBy(desc(supportTickets.closedAt)).limit(LIST_LIMIT);
+			? await selectSummaries().where(and(eq(supportTickets.status, 'active'), eq(supportTickets.assigneeId, actor.id), found)).orderBy(desc(supportTickets.lastMessageAt)).limit(LIST_LIMIT)
+			: await selectSummaries()
+				.where(and(eq(supportTickets.status, 'closed'), isManager(actor) ? undefined : eq(supportTickets.assigneeId, actor.id), found))
+				.orderBy(desc(supportTickets.closedAt)).limit(LIST_LIMIT);
 
 	return rows.map(toSummary);
 };
@@ -184,6 +245,7 @@ export const listTickets = async (tab: SupportTab, actor: AdminUser): Promise<Su
 export const countTickets = async (actor: AdminUser): Promise<SupportCounts> => {
 	const [row] = await db.select({
 		queue: sql<number>`count(*) filter (where status = 'queue')::int`,
+		open: isManager(actor) ? sql<number>`count(*)::int` : sql<number>`count(*) filter (where status = 'queue' or assignee_id = ${actor.id})::int`,
 		mine: sql<number>`count(*) filter (where status = 'active' and assignee_id = ${actor.id})::int`,
 		waiting: sql<number>`count(*) filter (where status = 'active' and assignee_id = ${actor.id} and last_sender is distinct from 'staff')::int`,
 	}).from(supportTickets).where(ne(supportTickets.status, 'closed'));
@@ -232,7 +294,7 @@ export const loadTicketDetail = async (id: number, actor: AdminUser): Promise<Su
 		throw new RuleError(403, 'Обращение ведет другой сотрудник');
 	}
 
-	const [[summary], messages, [subscriber], past, history] = await Promise.all([
+	const [[summary], messages, [subscriber], past, history, [tickets], [questions]] = await Promise.all([
 		selectSummaries().where(eq(supportTickets.id, id)),
 		db.select({
 			id: supportMessages.id,
@@ -252,6 +314,12 @@ export const loadTicketDetail = async (id: number, actor: AdminUser): Promise<Su
 			.orderBy(desc(supportTickets.closedAt))
 			.limit(20),
 		loadBotHistory(ticket.userId, ticket.createdAt),
+		db.select({ first: min(supportTickets.createdAt), total: count() }).from(supportTickets).where(eq(supportTickets.userId, ticket.userId)),
+		db.select({ total: count() }).from(dialogEvents).where(and(
+			eq(dialogEvents.userId, ticket.userId),
+			inArray(dialogEvents.type, ['answer', 'clarify', 'unrecognized']),
+			sql`coalesce(trim(${dialogEvents.text}), '') <> ''`,
+		)),
 	]);
 
 	return {
@@ -268,6 +336,9 @@ export const loadTicketDetail = async (id: number, actor: AdminUser): Promise<Su
 			username: subscriber?.username ?? null,
 			firstSeenAt: subscriber?.firstSeenAt.toISOString() ?? null,
 			isBlocked: subscriber?.isBlocked ?? false,
+			firstTicketAt: (tickets.first ?? ticket.createdAt).toISOString(),
+			ticketCount: tickets.total,
+			botQuestions: questions.total,
 		},
 		past: past.map(toSummary),
 		history,

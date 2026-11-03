@@ -1,7 +1,8 @@
+import { BoldOutlined, ItalicOutlined, LinkOutlined, RedoOutlined, StrikethroughOutlined, UnderlineOutlined, UndoOutlined } from '@ant-design/icons';
 import { UndoRedo } from '@tiptap/extensions';
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import type { Editor } from '@tiptap/react';
-import { Button, Form, Input, Modal, Space, Tooltip } from 'antd';
+import { Button, Divider, Form, Input, Modal, Tooltip } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -70,13 +71,13 @@ type FormatButton = {
 };
 
 const MARK_BUTTONS: FormatButton[] = [
-	{ key: 'bold', label: <b>Ж</b>, hint: 'Жирный (Ctrl+B)', toggle: editor => editor.chain().focus().toggleBold().run() },
-	{ key: 'italic', label: <i>К</i>, hint: 'Курсив (Ctrl+I)', toggle: editor => editor.chain().focus().toggleItalic().run() },
-	{ key: 'underline', label: <u>Ч</u>, hint: 'Подчеркнутый (Ctrl+U)', toggle: editor => editor.chain().focus().toggleUnderline().run() },
-	{ key: 'strike', label: <s>З</s>, hint: 'Зачеркнутый (Ctrl+Shift+S)', toggle: editor => editor.chain().focus().toggleStrike().run() },
+	{ key: 'bold', label: <BoldOutlined />, hint: 'Жирный (Ctrl+B)', toggle: editor => editor.chain().focus().toggleBold().run() },
+	{ key: 'italic', label: <ItalicOutlined />, hint: 'Курсив (Ctrl+I)', toggle: editor => editor.chain().focus().toggleItalic().run() },
+	{ key: 'underline', label: <UnderlineOutlined />, hint: 'Подчёркнутый (Ctrl+U)', toggle: editor => editor.chain().focus().toggleUnderline().run() },
+	{ key: 'strike', label: <StrikethroughOutlined />, hint: 'Зачёркнутый (Ctrl+Shift+S)', toggle: editor => editor.chain().focus().toggleStrike().run() },
 ];
 
-const Toolbar = ({ editor }: { editor: Editor; }) => {
+const Toolbar = ({ editor, compact }: { editor: Editor; compact: boolean; }) => {
 	const [linkOpen, setLinkOpen] = useState(false);
 
 	const state = useEditorState({
@@ -96,37 +97,43 @@ const Toolbar = ({ editor }: { editor: Editor; }) => {
 
 	return (
 		<div className="editor-toolbar">
-			<Space.Compact>
-				{MARK_BUTTONS.map(({ key, label, hint, toggle }) => (
-					<Tooltip key={key} title={hint}>
-						<Button size="small" type={state.active[key] ? 'primary' : 'default'} aria-pressed={state.active[key]} aria-label={hint} onClick={() => toggle(editor)}>{label}</Button>
-					</Tooltip>
-				))}
-				<Tooltip title={state.link || state.hasSelection ? 'Ссылка' : 'Сначала выделите текст'}>
-					<Button size="small" type={state.link ? 'primary' : 'default'} disabled={!state.link && !state.hasSelection} onClick={() => setLinkOpen(true)}>Ссылка</Button>
+			{MARK_BUTTONS.map(({ key, label, hint, toggle }) => (
+				<Tooltip key={key} title={hint}>
+					<Button size="small" type="text" className={state.active[key] ? 'editor-on' : undefined} icon={label} aria-pressed={state.active[key]} aria-label={hint} onClick={() => toggle(editor)} />
 				</Tooltip>
-			</Space.Compact>
-			<Space.Compact>
-				<Button size="small" type={state.heading ? 'primary' : 'default'} aria-pressed={state.heading} disabled={!state.canHeading} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>Заголовок</Button>
-				<Button size="small" type={state.quote ? 'primary' : 'default'} aria-pressed={state.quote} disabled={!state.canQuote} onClick={() => editor.chain().focus().toggleBlockquote().run()}>Цитата</Button>
-			</Space.Compact>
-			<Space.Compact>
-				<Button size="small" disabled={!state.canUndo} onClick={() => editor.chain().focus().undo().run()}>Отменить</Button>
-				<Button size="small" disabled={!state.canRedo} onClick={() => editor.chain().focus().redo().run()}>Вернуть</Button>
-			</Space.Compact>
+			))}
+			<Divider orientation="vertical" />
+			<Tooltip title={state.link || state.hasSelection ? 'Ссылка' : 'Сначала выделите текст'}>
+				<Button size="small" type="text" className={state.link ? 'editor-on' : undefined} icon={<LinkOutlined />} aria-label="Ссылка" disabled={!state.link && !state.hasSelection} onClick={() => setLinkOpen(true)} />
+			</Tooltip>
+			{!compact && (
+				<>
+					<Button size="small" type="text" className={state.heading ? 'editor-on' : undefined} aria-pressed={state.heading} disabled={!state.canHeading} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>Заголовок</Button>
+					<Button size="small" type="text" className={state.quote ? 'editor-on' : undefined} aria-pressed={state.quote} disabled={!state.canQuote} onClick={() => editor.chain().focus().toggleBlockquote().run()}>Цитата</Button>
+					<span className="editor-toolbar-spacer" />
+					<Tooltip title="Отменить">
+						<Button size="small" type="text" icon={<UndoOutlined />} aria-label="Отменить" disabled={!state.canUndo} onClick={() => editor.chain().focus().undo().run()} />
+					</Tooltip>
+					<Tooltip title="Вернуть">
+						<Button size="small" type="text" icon={<RedoOutlined />} aria-label="Вернуть" disabled={!state.canRedo} onClick={() => editor.chain().focus().redo().run()} />
+					</Tooltip>
+				</>
+			)}
 			{linkOpen && <LinkModal editor={editor} onClose={() => setLinkOpen(false)} />}
 		</div>
 	);
 };
 
 type MessageEditorProps = {
+	// Служебным текстам хватает начертаний и ссылки
+	compact?: boolean;
 	value?: string;
 	onChange?: (value: string) => void;
 };
 
 // Поле формы. Пока сотрудник не изменил текст по сути, форма получает исходную строку символ в символ:
 // сохранение не перепишет разметку раздела, который никто не правил
-export const MessageEditor = ({ value = '', onChange }: MessageEditorProps) => {
+export const MessageEditor = ({ compact = false, value = '', onChange }: MessageEditorProps) => {
 	const original = useRef(value);
 	const originalInEditor = useRef('');
 
@@ -144,8 +151,8 @@ export const MessageEditor = ({ value = '', onChange }: MessageEditorProps) => {
 	});
 
 	return (
-		<div className="message-editor">
-			<Toolbar editor={editor} />
+		<div className={compact ? 'message-editor compact' : 'message-editor'}>
+			<Toolbar editor={editor} compact={compact} />
 			<EditorContent editor={editor} />
 		</div>
 	);

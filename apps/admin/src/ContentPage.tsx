@@ -1,7 +1,9 @@
+import { ArrowRightOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Alert, App, Button, Form, Input, Modal, Radio, Select, Tag, Tree as AntTree } from 'antd';
+import { Alert, App, Button, Card, Form, Grid, Input, Modal, Radio, Select, Splitter, Tag, Tooltip, Tree as AntTree } from 'antd';
 import type { TreeDataNode, TreeProps } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import type { AdminContentNode, AdminUser, CreateNodeRequest, NodeType } from '@rw/core';
@@ -11,7 +13,11 @@ import { ApplyStatus, useApply } from './apply-status';
 import { ancestorsOf, buildTree, dropPlace, isSamePlace, matchingIds, pathOf } from './content-tree';
 import type { Tree } from './content-tree';
 import { NodeForm } from './NodeForm';
+import { PageHeader } from './page';
 import { CONTENT_KEY, errorText, queryClient } from './session';
+
+const TREE_WIDTH = 340;
+const TREE_MIN_WIDTH = 280;
 
 const TYPE_OPTIONS: { value: NodeType; label: string; }[] = [
 	{ value: 'section', label: 'Ответ' },
@@ -21,9 +27,10 @@ const TYPE_OPTIONS: { value: NodeType; label: string; }[] = [
 
 const NodeLabel = ({ node, off }: { node: AdminContentNode; off: boolean; }) => (
 	<span className="tree-row">
-		<span className={off ? 'tree-title inactive' : 'tree-title'}>{node.title}</span>
-		{node.type === 'link' && <Tag>ссылка</Tag>}
-		{node.type === 'goto' && (node.targetId === null ? <Tag color="error">нет цели</Tag> : <Tag>переход</Tag>)}
+		{node.type === 'link' && <Tooltip title="Ссылка на сайт"><LinkOutlined className="muted" /></Tooltip>}
+		{node.type === 'goto' && <Tooltip title="Переход в другой раздел"><ArrowRightOutlined className="muted" /></Tooltip>}
+		<span className={[off ? 'inactive' : '', node.parentId === null ? 'tree-root' : ''].join(' ')}>{node.title}</span>
+		{node.type === 'goto' && node.targetId === null && <Tag color="error">нет цели</Tag>}
 		{node.isHidden && <Tag>скрыт</Tag>}
 		{!node.isActive && <Tag>выключен</Tag>}
 	</span>
@@ -93,11 +100,30 @@ const AddNodeModal = ({ tree, parent, onCreated, onClose }: AddNodeModalProps) =
 	);
 };
 
+// На широком экране сотрудник сам выбирает ширину дерева, на узком дерево стоит над разделом
+const TwoPanels = ({ left, right }: { left: ReactNode; right: ReactNode; }) => {
+	const { md } = Grid.useBreakpoint();
+
+	return md === false
+		? (
+			<div className="content-stack">
+				{left}
+				{right}
+			</div>
+		)
+		: (
+			<Splitter className="content-split">
+				<Splitter.Panel defaultSize={TREE_WIDTH} min={TREE_MIN_WIDTH} max="50%">{left}</Splitter.Panel>
+				<Splitter.Panel>{right}</Splitter.Panel>
+			</Splitter>
+		);
+};
+
 export const ContentPage = ({ user }: { user: AdminUser; }) => {
 	const params = useParams();
 	const navigate = useNavigate();
 	const { message } = App.useApp();
-	const { status, apply } = useApply();
+	const { status, appliedAt, apply } = useApply();
 	const [query, setQuery] = useState('');
 	const [expanded, setExpanded] = useState<React.Key[]>([]);
 	const [adding, setAdding] = useState(false);
@@ -164,62 +190,70 @@ export const ContentPage = ({ user }: { user: AdminUser; }) => {
 	const addParent = selected?.type === 'section' ? selected : tree.byId.get(selected?.parentId ?? tree.root.id) ?? tree.root;
 
 	return (
-		<main className="content">
-			<nav className="tree">
-				<div className="tree-toolbar">
-					<Input.Search allowClear placeholder="Поиск по названию и фразам" value={query} onChange={event => setQuery(event.target.value)} />
-					<Button type="primary" onClick={() => setAdding(true)}>Добавить</Button>
-				</div>
-				<ApplyStatus status={status} />
-				{visible?.size === 0 && <p className="muted">Ничего не найдено</p>}
-				<AntTree
-					blockNode
-					treeData={treeData}
-					selectedKeys={selected ? [selected.id] : []}
-					expandedKeys={visible ? [...visible] : expanded}
-					draggable={visible
-						? false
-						: {
-							icon: false,
-							nodeDraggable: node => node.key !== rootId,
+		<>
+			<PageHeader title="Контент" extra={<ApplyStatus status={status} appliedAt={appliedAt} />} />
+			<main className="page-body content">
+				<TwoPanels
+					left={(
+						<Card className="tree-card">
+							<div className="tree-toolbar">
+								<Input.Search allowClear placeholder="Поиск по названию и фразам" value={query} onChange={event => setQuery(event.target.value)} />
+								<Tooltip title="Добавить пункт">
+									<Button type="primary" icon={<PlusOutlined />} aria-label="Добавить пункт" onClick={() => setAdding(true)} />
+								</Tooltip>
+							</div>
+							{visible?.size === 0 && <p className="muted">Ничего не найдено</p>}
+							<div className="tree-scroll">
+								<AntTree
+									blockNode
+									treeData={treeData}
+									selectedKeys={selected ? [selected.id] : []}
+									expandedKeys={visible ? [...visible] : expanded}
+									draggable={visible
+										? false
+										: {
+											icon: false,
+											nodeDraggable: node => node.key !== rootId,
+										}}
+									allowDrop={allowDrop}
+									onDrop={onDrop}
+									onExpand={keys => {
+										if (!visible) {
+											setExpanded(keys);
+										}
+									}}
+									onSelect={(_, { node }) => void navigate(`/content/${node.key}`)}
+								/>
+							</div>
+						</Card>
+					)}
+					right={selected
+						? (
+							<NodeForm
+								key={`${selected.id}:${selected.updatedAt}`}
+								node={selected}
+								tree={tree}
+								settings={content.data.settings}
+								user={user}
+								onSaved={saved}
+								onRefresh={() => void refresh()}
+							/>
+						)
+						: <Card className="node-card node-empty"><span className="muted">Выберите раздел слева.</span></Card>}
+				/>
+				{adding && (
+					<AddNodeModal
+						tree={tree}
+						parent={addParent}
+						onClose={() => setAdding(false)}
+						onCreated={node => {
+							setAdding(false);
+							// Новый пункт выключен: для пассажиров ничего не изменилось, бота не беспокоим
+							void refresh().then(() => navigate(`/content/${node.id}`));
 						}}
-					allowDrop={allowDrop}
-					onDrop={onDrop}
-					onExpand={keys => {
-						if (!visible) {
-							setExpanded(keys);
-						}
-					}}
-					onSelect={(_, { node }) => void navigate(`/content/${node.key}`)}
-				/>
-			</nav>
-			<section className="panel">
-				{selected
-					? (
-						<NodeForm
-							key={`${selected.id}:${selected.updatedAt}`}
-							node={selected}
-							tree={tree}
-							settings={content.data.settings}
-							user={user}
-							onSaved={saved}
-							onRefresh={() => void refresh()}
-						/>
-					)
-					: <p className="muted">Выберите раздел слева.</p>}
-			</section>
-			{adding && (
-				<AddNodeModal
-					tree={tree}
-					parent={addParent}
-					onClose={() => setAdding(false)}
-					onCreated={node => {
-						setAdding(false);
-						// Новый пункт выключен: для пассажиров ничего не изменилось, бота не беспокоим
-						void refresh().then(() => navigate(`/content/${node.id}`));
-					}}
-				/>
-			)}
-		</main>
+					/>
+				)}
+			</main>
+		</>
 	);
 };

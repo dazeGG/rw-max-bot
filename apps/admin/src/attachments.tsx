@@ -1,7 +1,9 @@
-// Картинка и файл раздела. Загрузка только кладет файл на сервер: в раздел он попадает при сохранении формы
+// Картинка и файл раздела. Загрузка только кладет файл на сервер: в раздел он попадет при сохранении
 
+import { FileOutlined, InboxOutlined, PictureOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { Alert, Button, Upload } from 'antd';
+import type { ReactNode } from 'react';
 
 import type { UploadKind, UploadResult } from '@rw/core';
 
@@ -56,31 +58,35 @@ const useUpload = (kind: UploadKind, onUploaded: (result: UploadResult) => void)
 
 type PickerProps = {
 	kind: UploadKind;
-	empty: boolean;
+	icon: ReactNode;
+	hint: string;
+	// Что загружено сейчас. Пока ничего нет, вместо него только приглашение загрузить
+	current: ReactNode;
 	onUploaded: (result: UploadResult) => void;
 	onRemove: () => void;
 };
 
-const Picker = ({ kind, empty, onUploaded, onRemove }: PickerProps) => {
+const Picker = ({ kind, icon, hint, current, onUploaded, onRemove }: PickerProps) => {
 	const upload = useUpload(kind, onUploaded);
 
 	return (
-		<>
-			<div className="row-actions">
-				<Upload
-					accept={kind === 'image' ? IMAGE_ACCEPT : FILE_ACCEPT}
-					showUploadList={false}
-					beforeUpload={file => {
-						upload.mutate(file);
-						return false;
-					}}
-				>
-					<Button loading={upload.isPending}>{empty ? 'Загрузить' : 'Заменить'}</Button>
-				</Upload>
-				{!empty && <Button onClick={onRemove}>Убрать</Button>}
-			</div>
-			{upload.isError && <Alert className="form-alert" type="error" title={errorText(upload.error)} />}
-		</>
+		<div className="attachment-field">
+			<Upload.Dragger
+				accept={kind === 'image' ? IMAGE_ACCEPT : FILE_ACCEPT}
+				showUploadList={false}
+				disabled={upload.isPending}
+				beforeUpload={file => {
+					upload.mutate(file);
+					return false;
+				}}
+			>
+				{current ?? <div className="attachment-icon">{icon}</div>}
+				<div>{upload.isPending ? 'Загружаем…' : current ? 'Перетащите или нажмите, чтобы заменить' : 'Перетащите или нажмите'}</div>
+				<div className="muted small">{hint}</div>
+			</Upload.Dragger>
+			{current && <Button size="small" onClick={onRemove}>Убрать</Button>}
+			{upload.isError && <Alert type="error" title={errorText(upload.error)} />}
+		</div>
 	);
 };
 
@@ -90,20 +96,29 @@ type ImageFieldProps = {
 	onChange?: (value: string | null) => void;
 };
 
-export const ImageField = ({ readOnly, value, onChange }: ImageFieldProps) => (
-	<div className="attachment-field">
-		{value && <img className="attachment-image" src={mediaUrl(value)} alt="" />}
-		{!value && readOnly && <span className="muted">Картинки нет</span>}
-		{!readOnly && (
-			<Picker
-				kind="image"
-				empty={!value}
-				onUploaded={result => onChange?.(result.path)}
-				onRemove={() => onChange?.(null)}
-			/>
-		)}
-	</div>
-);
+export const ImageField = ({ readOnly, value, onChange }: ImageFieldProps) => {
+	const image = value ? <img className="attachment-image" src={mediaUrl(value)} alt="" /> : null;
+
+	if (readOnly) {
+		return (
+			<div className="attachment-field">
+				{image ?? <span className="muted">Картинки нет</span>}
+				<span className="muted small">Менять может только суперадмин</span>
+			</div>
+		);
+	}
+
+	return (
+		<Picker
+			kind="image"
+			icon={<PictureOutlined />}
+			hint="JPG, PNG или GIF до 10 МБ. Приходит вместе с текстом"
+			current={image}
+			onUploaded={result => onChange?.(result.path)}
+			onRemove={() => onChange?.(null)}
+		/>
+	);
+};
 
 type FileFieldProps = {
 	name: string | null;
@@ -113,19 +128,24 @@ type FileFieldProps = {
 };
 
 export const FileField = ({ name, onNameChange, value, onChange }: FileFieldProps) => (
-	<div className="attachment-field">
-		{value && <a href={mediaUrl(value)} download={name ?? undefined}>{name ?? value}</a>}
-		<Picker
-			kind="file"
-			empty={!value}
-			onUploaded={result => {
-				onChange?.(result.path);
-				onNameChange(result.name);
-			}}
-			onRemove={() => {
-				onChange?.(null);
-				onNameChange(null);
-			}}
-		/>
-	</div>
+	<Picker
+		kind="file"
+		icon={<InboxOutlined />}
+		hint="PDF, документ, таблица или архив до 50 МБ. Приходит отдельным сообщением"
+		current={value
+			? (
+				<a className="attachment-file" href={mediaUrl(value)} download={name ?? undefined} onClick={event => event.stopPropagation()}>
+					<FileOutlined /> {name ?? value}
+				</a>
+			)
+			: null}
+		onUploaded={result => {
+			onChange?.(result.path);
+			onNameChange(result.name);
+		}}
+		onRemove={() => {
+			onChange?.(null);
+			onNameChange(null);
+		}}
+	/>
 );

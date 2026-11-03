@@ -1,7 +1,8 @@
 // Вопросы пассажиров и проверка поиска: главная регулярная работа админа
 
+import { DeleteOutlined, DownOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Alert, App, Button, Form, Input, Modal, Segmented, Select, Table, Tabs, Tag } from 'antd';
+import { Alert, App, Badge, Button, Card, Dropdown, Form, Input, Modal, Segmented, Select, Space, Statistic, Table, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
@@ -12,10 +13,11 @@ import { api } from './api';
 import { ApplyStatus, useApply } from './apply-status';
 import { buildTree, pathOf } from './content-tree';
 import type { Tree } from './content-tree';
-import { formatDate } from './labels';
-import { CONTENT_KEY, errorText, queryClient } from './session';
+import { formatWhen } from './labels';
+import { PageHeader } from './page';
+import { CONTENT_KEY, errorText, queryClient, QUESTIONS_KEY } from './session';
 
-const QUESTIONS_KEY = ['questions'];
+const STATS_KEY = ['questions-stats'];
 
 const PHRASE_LIMIT = 300;
 const TITLE_LIMIT = 200;
@@ -30,6 +32,7 @@ const SOURCE_LABELS: Record<QuestionSource, string> = {
 
 const refresh = () => Promise.all([
 	queryClient.invalidateQueries({ queryKey: QUESTIONS_KEY }),
+	queryClient.invalidateQueries({ queryKey: STATS_KEY }),
 	queryClient.invalidateQueries({ queryKey: CONTENT_KEY }),
 ]);
 
@@ -147,14 +150,23 @@ const CreateSectionModal = ({ question, tree, onClose }: ModalProps) => {
 
 type Filter = 'all' | QuestionSource;
 
+const Stat = ({ title, value, hint, good = false }: { title: string; value: number | undefined; hint: string; good?: boolean; }) => (
+	<Card className="stat-card">
+		<Statistic title={title} value={value} loading={value === undefined} styles={good ? { content: { color: '#389e0d' } } : undefined} />
+		<div className="muted small">{hint}</div>
+	</Card>
+);
+
 const QuestionsTab = ({ tree, onApply }: { tree: Tree | undefined; onApply: () => void; }) => {
 	const { message } = App.useApp();
 	const [filter, setFilter] = useState<Filter>('all');
+	const [search, setSearch] = useState('');
 	const [adding, setAdding] = useState<PassengerQuestion | null>(null);
 	const [creating, setCreating] = useState<PassengerQuestion | null>(null);
 	const [dismissed, setDismissed] = useState<PassengerQuestion | null>(null);
 
 	const questions = useQuery({ queryKey: QUESTIONS_KEY, queryFn: api.questions });
+	const stats = useQuery({ queryKey: STATS_KEY, queryFn: api.questionStats });
 
 	const dismiss = useMutation({
 		mutationFn: (question: PassengerQuestion) => api.reviewQuestion({ key: question.key, status: 'dismissed' }),
@@ -174,8 +186,13 @@ const QuestionsTab = ({ tree, onApply }: { tree: Tree | undefined; onApply: () =
 		onError: error => void message.error(errorText(error)),
 	});
 
-	const list = questions.data ?? [];
-	const shown = filter === 'all' ? list : list.filter(question => question.sources[filter] > 0);
+	const list = questions.data;
+	const all = list ?? [];
+	const countOf = (source: QuestionSource) => all.filter(question => question.sources[source] > 0).length;
+	const needle = search.trim().toLowerCase();
+	const shown = all
+		.filter(question => filter === 'all' || question.sources[filter] > 0)
+		.filter(question => !needle || question.text.toLowerCase().includes(needle));
 
 	const columns: TableColumnsType<PassengerQuestion> = [
 		{
@@ -184,7 +201,7 @@ const QuestionsTab = ({ tree, onApply }: { tree: Tree | undefined; onApply: () =
 			render: (_, question) => (
 				<>
 					<div className="question-text">{question.text}</div>
-					{question.offered.length > 0 && <div className="muted">Бот предлагал: {question.offered.join(', ')}</div>}
+					{question.offered.length > 0 && <div className="muted small">Бот предлагал: {question.offered.join(', ')}</div>}
 				</>
 			),
 		},
@@ -194,25 +211,39 @@ const QuestionsTab = ({ tree, onApply }: { tree: Tree | undefined; onApply: () =
 			width: 220,
 			render: (_, question) => (Object.keys(SOURCE_LABELS) as QuestionSource[])
 				.filter(source => question.sources[source] > 0)
-				.map(source => <Tag key={source} color={source === 'noOption' ? 'gold' : undefined}>{SOURCE_LABELS[source]}</Tag>),
+				.map(source => <Tag key={source} color={source === 'noOption' ? 'warning' : undefined}>{SOURCE_LABELS[source]}</Tag>),
 		},
 		{
 			title: 'Сколько раз',
 			key: 'count',
-			width: 120,
-			render: (_, question) => <>{question.count} <span className="muted">({question.people} чел.)</span></>,
+			width: 130,
+			render: (_, question) => <>{question.count} <span className="muted">· {question.people} чел.</span></>,
 		},
-		{ title: 'Последний', key: 'lastAt', width: 150, render: (_, question) => formatDate(question.lastAt) },
+		{ title: 'Последний', key: 'lastAt', width: 150, render: (_, question) => <span className="secondary">{formatWhen(question.lastAt)}</span> },
 		{
-			title: 'Что сделать',
+			title: '',
 			key: 'action',
-			width: 340,
+			width: 190,
 			render: (_, question) => (
-				<div className="row-actions">
+				<Space.Compact>
 					<Button size="small" disabled={!tree} onClick={() => setAdding(question)}>К разделу</Button>
-					<Button size="small" disabled={!tree} onClick={() => setCreating(question)}>Создать раздел</Button>
-					<Button size="small" loading={dismiss.isPending && dismiss.variables.key === question.key} onClick={() => dismiss.mutate(question)}>Не вопрос</Button>
-				</div>
+					<Dropdown
+						trigger={['click']}
+						menu={{
+							items: [
+								{ key: 'create', icon: <PlusOutlined />, label: 'Создать раздел', disabled: !tree, onClick: () => setCreating(question) },
+								{ key: 'dismiss', icon: <DeleteOutlined />, label: 'Не вопрос — убрать', onClick: () => dismiss.mutate(question) },
+							],
+						}}
+					>
+						<Button
+							size="small"
+							icon={<DownOutlined />}
+							aria-label="Другие действия"
+							loading={dismiss.isPending && dismiss.variables.key === question.key}
+						/>
+					</Dropdown>
+				</Space.Compact>
 			),
 		},
 	];
@@ -222,41 +253,51 @@ const QuestionsTab = ({ tree, onApply }: { tree: Tree | undefined; onApply: () =
 	}
 
 	return (
-		<>
-			<div className="questions-bar">
-				<Segmented<Filter>
-					value={filter}
-					onChange={setFilter}
-					options={[
-						{ value: 'all', label: `Все: ${list.length}` },
-						...(Object.keys(SOURCE_LABELS) as QuestionSource[]).map(source => ({
-							value: source,
-							label: `${SOURCE_LABELS[source]}: ${list.filter(question => question.sources[source] > 0).length}`,
-						})),
-					]}
-				/>
-				<span className="muted">За последние 30 дней. Одинаковые вопросы объединены, частые сверху.</span>
+		<div className="page-stack">
+			<div className="stat-grid">
+				<Stat title="Ждут разбора" value={list?.length} hint="за последние 30 дней" />
+				<Stat title={SOURCE_LABELS.unrecognized} value={list && countOf('unrecognized')} hint="предложил темы меню" />
+				<Stat title={SOURCE_LABELS.noOption} value={list && countOf('noOption')} hint="ушли в службу поддержки" />
+				<Stat title="Разобрано за неделю" value={stats.data?.resolvedWeek} hint="фразы добавлены к разделам" good />
 			</div>
 
 			{dismissed && (
 				<Alert
-					className="form-alert"
 					type="info"
+					showIcon
 					title={`«${dismissed.text.slice(0, 80)}» убран из списка`}
 					action={<Button size="small" loading={undo.isPending} onClick={() => undo.mutate(dismissed)}>Вернуть</Button>}
 					closable={{ onClose: () => setDismissed(null) }}
 				/>
 			)}
 
-			<Table
-				rowKey="key"
-				size="small"
-				columns={columns}
-				dataSource={shown}
-				loading={questions.isPending}
-				pagination={{ pageSize: 20, hideOnSinglePage: true, showSizeChanger: false }}
-				locale={{ emptyText: 'Новых вопросов нет' }}
-			/>
+			<Card className="table-card">
+				<div className="questions-bar">
+					<Segmented<Filter>
+						value={filter}
+						onChange={setFilter}
+						options={[
+							{ value: 'all', label: <>Все <Badge count={all.length} showZero overflowCount={999} color="rgba(0, 0, 0, 0.06)" className="muted-badge" /></> },
+							...(Object.keys(SOURCE_LABELS) as QuestionSource[]).map(source => ({
+								value: source,
+								label: <>{SOURCE_LABELS[source]} <Badge count={countOf(source)} showZero overflowCount={999} color="rgba(0, 0, 0, 0.06)" className="muted-badge" /></>,
+							})),
+						]}
+					/>
+					<span className="muted questions-hint">Одинаковые вопросы объединены, частые сверху</span>
+					<Input.Search className="questions-search" allowClear placeholder="Найти вопрос" value={search} onChange={event => setSearch(event.target.value)} />
+				</div>
+
+				<Table
+					rowKey="key"
+					columns={columns}
+					dataSource={shown}
+					loading={questions.isPending}
+					pagination={{ pageSize: 20, hideOnSinglePage: true, showSizeChanger: false }}
+					locale={{ emptyText: needle ? 'Ничего не найдено' : 'Новых вопросов нет' }}
+					scroll={{ x: 860 }}
+				/>
+			</Card>
 
 			{adding && tree && (
 				<AddToSectionModal
@@ -270,7 +311,7 @@ const QuestionsTab = ({ tree, onApply }: { tree: Tree | undefined; onApply: () =
 				/>
 			)}
 			{creating && tree && <CreateSectionModal question={creating} tree={tree} onClose={() => setCreating(null)} />}
-		</>
+		</div>
 	);
 };
 
@@ -308,7 +349,7 @@ const CheckTab = () => {
 	const check = useMutation({ mutationFn: api.checkSearch });
 
 	return (
-		<div className="check-tab">
+		<Card className="check-tab">
 			<Input.Search
 				value={text}
 				onChange={event => setText(event.target.value)}
@@ -331,24 +372,28 @@ const CheckTab = () => {
 				</>
 			)}
 			{check.isError && <Alert type="error" title={errorText(check.error)} />}
-		</div>
+		</Card>
 	);
 };
 
 export const QuestionsPage = () => {
-	const { status, apply } = useApply();
+	const { status, appliedAt, apply } = useApply();
+	const [tab, setTab] = useState('questions');
 	const content = useQuery({ queryKey: CONTENT_KEY, queryFn: api.content, refetchOnWindowFocus: false });
 	const tree = useMemo(() => content.data && buildTree(content.data.nodes), [content.data]);
 
 	return (
-		<main className="page">
-			<ApplyStatus status={status} />
-			<Tabs
-				items={[
-					{ key: 'questions', label: 'Вопросы', children: <QuestionsTab tree={tree} onApply={apply} /> },
-					{ key: 'check', label: 'Проверка поиска', children: <CheckTab /> },
-				]}
+		<>
+			<PageHeader
+				title="Вопросы пассажиров"
+				extra={<ApplyStatus status={status} appliedAt={appliedAt} />}
+				tabs={[{ key: 'questions', label: 'Ждут разбора' }, { key: 'check', label: 'Проверка поиска' }]}
+				activeTab={tab}
+				onTab={setTab}
 			/>
-		</main>
+			<main className="page-body">
+				{tab === 'questions' ? <QuestionsTab tree={tree} onApply={apply} /> : <CheckTab />}
+			</main>
+		</>
 	);
 };

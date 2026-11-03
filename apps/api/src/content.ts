@@ -4,7 +4,7 @@ import { asc } from 'drizzle-orm';
 
 import { DEFAULT_SETTINGS } from '@rw/core';
 import type { AdminContentNode, ContentResponse, ContentSnapshot, Settings } from '@rw/core';
-import { contentNodes, contentVersions, db, settings } from '@rw/db';
+import { admins, contentNodes, contentVersions, db, settings } from '@rw/db';
 import { errorMessage } from '@rw/runtime';
 
 import type { Tx } from './audit';
@@ -35,8 +35,18 @@ export const loadSettings = async (reader: Reader = db): Promise<Settings> => {
 const selectNodes = (reader: Reader = db) => reader.select().from(contentNodes).orderBy(asc(contentNodes.sort), asc(contentNodes.id));
 
 export const loadAdminContent = async (): Promise<ContentResponse> => {
-	const [rows, merged] = await Promise.all([selectNodes(), loadSettings()]);
-	return { nodes: rows.map(toAdminNode), settings: merged };
+	const [rows, merged, staff] = await Promise.all([
+		selectNodes(),
+		loadSettings(),
+		db.select({ login: admins.login, fullName: admins.fullName }).from(admins),
+	]);
+	const names = new Map(staff.map(({ login, fullName }) => [login, fullName]));
+
+	// В базе хранится логин, а в шапке раздела показывается ФИО
+	return {
+		nodes: rows.map(row => ({ ...toAdminNode(row), updatedBy: row.updatedBy && (names.get(row.updatedBy) ?? row.updatedBy) })),
+		settings: merged,
+	};
 };
 
 // version — хеш содержимого: бот перекачивает контент, только если он изменился (ТЗ п. 4.3).

@@ -145,6 +145,10 @@ export const supportTickets = pgTable('support_tickets', {
 	takenAt: timestamp('taken_at', { withTimezone: true }),
 	closedAt: timestamp('closed_at', { withTimezone: true }),
 	closeReason: varchar('close_reason', { length: 10 }),
+	// Почему пассажир пришел к оператору: unrecognized, noOption или asked. У старых обращений пусто
+	openReason: varchar('open_reason', { length: 20 }),
+	// Сколько раз бот не понял пассажира незадолго до обращения
+	botMisses: integer('bot_misses').notNull().default(0),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, table => [
 	uniqueIndex('support_tickets_open_idx').on(table.userId).where(sql`status <> 'closed'`),
@@ -167,6 +171,20 @@ export const supportMessages = pgTable('support_messages', {
 }, table => [
 	index('support_messages_ticket_idx').on(table.ticketId, table.id),
 	uniqueIndex('support_messages_mid_idx').on(table.mid).where(sql`mid is not null`),
+]);
+
+// Шаблоны ответов. У каждого сотрудника свои: другие их не видят
+export const supportTemplates = pgTable('support_templates', {
+	id: serial('id').primaryKey(),
+	adminId: integer('admin_id').notNull().references(() => admins.id),
+	title: varchar('title', { length: 100 }).notNull(),
+	// Набирается в ответе после косой черты
+	command: varchar('command', { length: 50 }).notNull(),
+	text: text('text').notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+	uniqueIndex('support_templates_command_idx').on(table.adminId, table.command),
 ]);
 
 // Обработанные вопросы пассажиров. Сами вопросы лежат в dialog_events, key — хеш нормализованной фразы:

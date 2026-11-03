@@ -1,26 +1,36 @@
+import { EllipsisOutlined, LockOutlined, StopOutlined, UserAddOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntApp, Button, Form, Input, Modal, Select, Table, Tabs, Tag } from 'antd';
-import type { TableColumnsType } from 'antd';
+import { Alert, App as AntApp, Badge, Button, Card, Dropdown, Form, Input, Modal, Select, Table, Tag } from 'antd';
+import type { MenuProps, TableColumnsType } from 'antd';
 import { useState } from 'react';
 
 import type { AdminRole, AdminUser, AuditEntry, CreateStaffRequest, StaffInvite, StaffMember } from '@rw/core';
 
 import { api } from './api';
-import { ACTION_LABELS, fieldLabels, formatDate } from './labels';
+import { ACTION_LABELS, fieldLabels, formatDate, formatDay, formatWhen } from './labels';
+import { PageHeader, PersonAvatar, staffInitials } from './page';
 import { errorText, ROLE_LABELS } from './session';
 
-const StatusTag = ({ member }: { member: StaffMember; }) => {
+const ROLE_COLORS: Record<AdminRole, string | undefined> = {
+	superadmin: 'purple',
+	admin: 'processing',
+	support: undefined,
+};
+
+const inviteActive = (member: StaffMember) => member.inviteExpiresAt !== null && new Date(member.inviteExpiresAt) > new Date();
+
+const StatusBadge = ({ member }: { member: StaffMember; }) => {
 	if (!member.isActive) {
-		return <Tag>Отключен</Tag>;
+		return <Badge status="default" text={<span className="muted">Отключён</span>} />;
 	}
 
 	if (member.hasPassword) {
-		return <Tag color="success">Активен</Tag>;
+		return <Badge status="success" text="Активен" />;
 	}
 
-	return member.inviteExpiresAt && new Date(member.inviteExpiresAt) > new Date()
-		? <Tag color="processing">Ждем пароль до {formatDate(member.inviteExpiresAt)}</Tag>
-		: <Tag color="warning">Ссылка истекла</Tag>;
+	return inviteActive(member)
+		? <Badge status="processing" text={`Ждём пароль до ${formatWhen(member.inviteExpiresAt!)}`} />
+		: <Badge status="warning" text="Ссылка истекла" />;
 };
 
 const InviteModal = ({ invite, onClose }: { invite: StaffInvite; onClose: () => void; }) => {
@@ -99,11 +109,10 @@ const StaffEditor = ({ state, user, onClose, onInvite }: { state: EditorState; u
 	);
 };
 
-const StaffTable = ({ user }: { user: AdminUser; }) => {
+const StaffTable = ({ user, editor, setEditor }: { user: AdminUser; editor: EditorState | null; setEditor: (state: EditorState | null) => void; }) => {
 	const { message, modal } = AntApp.useApp();
 	const queryClient = useQueryClient();
 	const staff = useQuery({ queryKey: ['staff'], queryFn: api.staff });
-	const [editor, setEditor] = useState<EditorState | null>(null);
 	const [invite, setInvite] = useState<StaffInvite | null>(null);
 
 	const refresh = () => queryClient.invalidateQueries({ queryKey: ['staff'] });
@@ -120,72 +129,104 @@ const StaffTable = ({ user }: { user: AdminUser; }) => {
 	const disable = useMutation({ mutationFn: api.disableStaff, onSuccess: refresh, onError: showError });
 	const enable = useMutation({ mutationFn: api.enableStaff, onSuccess: refresh, onError: showError });
 
+	const askReissue = (member: StaffMember) => modal.confirm({
+		title: `${member.hasPassword ? 'Сбросить пароль' : 'Выдать новую ссылку'}: ${member.fullName}?`,
+		content: member.hasPassword
+			? 'Старый пароль перестанет работать, все входы сотрудника завершатся. Вы получите новую ссылку.'
+			: 'Прежняя ссылка перестанет работать. Вы получите новую.',
+		okText: member.hasPassword ? 'Сбросить' : 'Выдать',
+		cancelText: 'Отмена',
+		onOk: () => reissue.mutate(member.id),
+	});
+
+	const askDisable = (member: StaffMember) => modal.confirm({
+		title: `Отключить: ${member.fullName}?`,
+		content: 'Доступ закроется сразу на всех устройствах. Сотрудника можно будет включить обратно.',
+		okText: 'Отключить',
+		okButtonProps: { danger: true },
+		cancelText: 'Отмена',
+		onOk: () => disable.mutate(member.id),
+	});
+
+	// Новая ссылка для просроченного приглашения вынесена кнопкой в строку, в меню остается только отключение
+	const moreItems = (member: StaffMember, expired: boolean): MenuProps['items'] => [
+		...(expired
+			? []
+			: [
+				{ key: 'reissue', icon: <LockOutlined />, label: member.hasPassword ? 'Сбросить пароль' : 'Новая ссылка', onClick: () => askReissue(member) },
+				{ type: 'divider' as const },
+			]),
+		{ key: 'disable', icon: <StopOutlined />, label: 'Отключить', danger: true, onClick: () => askDisable(member) },
+	];
+
 	const columns: TableColumnsType<StaffMember> = [
-		{ title: 'ФИО', dataIndex: 'fullName' },
-		{ title: 'Логин', dataIndex: 'login' },
-		{ title: 'Роль', dataIndex: 'role', render: (role: AdminRole) => ROLE_LABELS[role] },
-		{ title: 'Статус', key: 'status', render: (_, member) => <StatusTag member={member} /> },
-		{ title: 'Последний вход', dataIndex: 'lastLoginAt', render: (value: string | null) => value ? formatDate(value) : '—' },
 		{
-			title: 'Действия',
-			key: 'actions',
+			title: 'Сотрудник',
+			key: 'name',
 			render: (_, member) => (
-				<div className="row-actions">
-					<Button size="small" onClick={() => setEditor({ kind: 'edit', member })}>Изменить</Button>
-					{member.id === user.id && <span className="muted">это вы</span>}
-					{member.id !== user.id && member.isActive && (
-						<>
-							<Button
-								size="small"
-								onClick={() => modal.confirm({
-									title: `Сбросить пароль: ${member.fullName}?`,
-									content: 'Старый пароль перестанет работать, все входы сотрудника завершатся. Вы получите новую ссылку.',
-									okText: 'Сбросить',
-									cancelText: 'Отмена',
-									onOk: () => reissue.mutate(member.id),
-								})}
-							>
-								{member.hasPassword ? 'Сбросить пароль' : 'Новая ссылка'}
-							</Button>
-							<Button
-								size="small"
-								danger
-								onClick={() => modal.confirm({
-									title: `Отключить: ${member.fullName}?`,
-									content: 'Доступ закроется сразу на всех устройствах. Сотрудника можно будет включить обратно.',
-									okText: 'Отключить',
-									okButtonProps: { danger: true },
-									cancelText: 'Отмена',
-									onOk: () => disable.mutate(member.id),
-								})}
-							>
-								Отключить
-							</Button>
-						</>
-					)}
-					{member.id !== user.id && !member.isActive && (
-						<Button size="small" onClick={() => enable.mutate(member.id)}>Включить</Button>
-					)}
+				<div className={member.isActive ? 'person' : 'person off'}>
+					<PersonAvatar initials={staffInitials(member.fullName)} seed={member.login} />
+					<div>
+						<div>{member.fullName} {member.id === user.id && <Tag variant="filled">это вы</Tag>}</div>
+						<div className="muted small">{member.login}</div>
+					</div>
 				</div>
 			),
+		},
+		{ title: 'Роль', dataIndex: 'role', width: 150, render: (role: AdminRole) => <Tag color={ROLE_COLORS[role]}>{ROLE_LABELS[role]}</Tag> },
+		{ title: 'Статус', key: 'status', width: 260, render: (_, member) => <StatusBadge member={member} /> },
+		{
+			title: 'Последний вход',
+			dataIndex: 'lastLoginAt',
+			width: 160,
+			render: (value: string | null) => {
+				if (!value) {
+					return <span className="muted">—</span>;
+				}
+
+				return new Date(value).getTime() > Date.now() - 2 * 86_400_000 ? formatWhen(value) : formatDay(value);
+			},
+		},
+		{
+			title: '',
+			key: 'actions',
+			width: 200,
+			render: (_, member) => {
+				const self = member.id === user.id;
+				const expired = !member.hasPassword && !inviteActive(member);
+
+				return (
+					<div className="row-actions">
+						<Button size="small" onClick={() => setEditor({ kind: 'edit', member })}>Изменить</Button>
+						{!self && !member.isActive && <Button size="small" onClick={() => enable.mutate(member.id)}>Включить</Button>}
+						{!self && member.isActive && expired && <Button size="small" onClick={() => askReissue(member)}>Новая ссылка</Button>}
+						{!self && member.isActive && (
+							<Dropdown
+								trigger={['click']}
+								menu={{ items: moreItems(member, expired) }}
+							>
+								<Button size="small" icon={<EllipsisOutlined />} aria-label="Ещё" />
+							</Dropdown>
+						)}
+					</div>
+				);
+			},
 		},
 	];
 
 	return (
 		<>
-			<div className="page-actions">
-				<Button type="primary" onClick={() => setEditor({ kind: 'create' })}>Добавить сотрудника</Button>
-			</div>
 			{staff.isError && <Alert className="form-alert" type="error" title={errorText(staff.error)} />}
-			<Table<StaffMember>
-				rowKey="id"
-				size="middle"
-				loading={staff.isPending}
-				dataSource={staff.data}
-				columns={columns}
-				pagination={false}
-				scroll={{ x: 'max-content' }}
-			/>
+			<Card className="table-card">
+				<Table<StaffMember>
+					rowKey="id"
+					loading={staff.isPending}
+					dataSource={staff.data}
+					columns={columns}
+					pagination={false}
+					scroll={{ x: 860 }}
+				/>
+			</Card>
 			{editor && <StaffEditor state={editor} user={user} onClose={() => setEditor(null)} onInvite={setInvite} />}
 			{invite && <InviteModal invite={invite} onClose={() => setInvite(null)} />}
 		</>
@@ -215,8 +256,18 @@ const AuditTable = () => {
 	const log = useQuery({ queryKey: ['audit-log'], queryFn: api.auditLog });
 
 	const columns: TableColumnsType<AuditEntry> = [
-		{ title: 'Когда', dataIndex: 'createdAt', render: (value: string) => formatDate(value) },
-		{ title: 'Кто', dataIndex: 'actorName' },
+		{ title: 'Когда', dataIndex: 'createdAt', width: 150, render: (value: string) => formatWhen(value) },
+		{
+			title: 'Кто',
+			dataIndex: 'actorName',
+			width: 200,
+			render: (name: string) => (
+				<span className="person small-gap">
+					<PersonAvatar initials={staffInitials(name)} seed={name} size="small" />
+					{name}
+				</span>
+			),
+		},
 		{ title: 'Действие', dataIndex: 'action', render: (action: string) => ACTION_LABELS[action] ?? action },
 		{ title: 'Объект', key: 'target', render: (_, entry) => String(entry.details.login ?? entry.details.title ?? '—') },
 		{ title: 'Подробности', key: 'details', render: (_, entry) => auditDetails(entry) || '—' },
@@ -225,31 +276,42 @@ const AuditTable = () => {
 	return (
 		<>
 			{log.isError && <Alert className="form-alert" type="error" title={errorText(log.error)} />}
-			<Table<AuditEntry>
-				rowKey="id"
-				size="middle"
-				loading={log.isPending}
-				dataSource={log.data}
-				columns={columns}
-				pagination={{ pageSize: 50, hideOnSinglePage: true }}
-				scroll={{ x: 'max-content' }}
-			/>
+			<Card className="table-card">
+				<Table<AuditEntry>
+					rowKey="id"
+					loading={log.isPending}
+					dataSource={log.data}
+					columns={columns}
+					pagination={{ pageSize: 50, hideOnSinglePage: true }}
+					scroll={{ x: 860 }}
+				/>
+			</Card>
 		</>
 	);
 };
 
-export const StaffPage = ({ user }: { user: AdminUser; }) => (
-	<main className="page">
-		{user.role === 'superadmin'
-			? (
-				<Tabs
-					destroyOnHidden
-					items={[
-						{ key: 'staff', label: 'Сотрудники', children: <StaffTable user={user} /> },
-						{ key: 'log', label: 'Журнал действий', children: <AuditTable /> },
-					]}
-				/>
-			)
-			: <StaffTable user={user} />}
-	</main>
-);
+export const StaffPage = ({ user }: { user: AdminUser; }) => {
+	const [tab, setTab] = useState('staff');
+	const [editor, setEditor] = useState<EditorState | null>(null);
+
+	const add = <Button type="primary" icon={<UserAddOutlined />} onClick={() => setEditor({ kind: 'create' })}>Добавить сотрудника</Button>;
+
+	return (
+		<>
+			{user.role === 'superadmin'
+				? (
+					<PageHeader
+						title="Сотрудники"
+						tabs={[{ key: 'staff', label: 'Сотрудники' }, { key: 'log', label: 'Журнал действий' }]}
+						activeTab={tab}
+						onTab={setTab}
+						tabsExtra={tab === 'staff' ? add : undefined}
+					/>
+				)
+				: <PageHeader title="Сотрудники" extra={add} />}
+			<main className="page-body">
+				{tab === 'staff' ? <StaffTable user={user} editor={editor} setEditor={setEditor} /> : <AuditTable />}
+			</main>
+		</>
+	);
+};

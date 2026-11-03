@@ -8,6 +8,8 @@ const ME_KEY = ['me'];
 
 export const CONTENT_KEY = ['content'];
 
+export const QUESTIONS_KEY = ['questions'];
+
 // Сессия закончилась или сотрудника отключили: возвращаем на форму входа и забываем чужие данные
 export const signedOut = () => {
 	queryClient.setQueryData(ME_KEY, null);
