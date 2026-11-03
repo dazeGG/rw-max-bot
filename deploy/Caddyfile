@@ -1,21 +1,7 @@
-# Два адреса с разной доступностью:
-#   DOMAIN       — публичный: MAX должен достучаться до вебхука, больше здесь ничего нет
-#   ADMIN_DOMAIN — админка и API, только с адресов из ADMIN_ALLOWED_IPS
-# Caddy сам получает и продлевает сертификаты Let's Encrypt (нужны открытые 80 и 443 и публичный DNS)
-
-(security_headers) {
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
-		Referrer-Policy no-referrer
-		-Server
-	}
-}
+# Наружу открыт только вебхук MAX. Админка на этот сервер не выкладывается.
+# Caddy сам получает и продлевает сертификат Let's Encrypt для DOMAIN (нужны открытые 80 и 443)
 
 {$DOMAIN} {
-	import security_headers
-
 	# Подлинность запроса бот проверяет сам по заголовку X-Max-Bot-Api-Secret
 	handle /webhook {
 		reverse_proxy bot:3000
@@ -24,31 +10,12 @@
 	handle {
 		respond 404
 	}
-}
 
-{$ADMIN_DOMAIN} {
-	import security_headers
-	encode zstd gzip
-
-	# Адрес самого подключения: заголовки вроде X-Forwarded-For на проверку не влияют
-	@allowed remote_ip {$ADMIN_ALLOWED_IPS}
-
-	handle @allowed {
-		# В API проксируется только /api: /internal/* для бота доступен лишь внутри docker-сети
-		handle /api/* {
-			reverse_proxy api:3001
-		}
-
-		# Админка: SPA, неизвестные пути отдают index.html
-		handle {
-			root * /srv/admin
-			try_files {path} /index.html
-			file_server
-		}
-	}
-
-	# Все, кто не в списке, сюда: и страницы, и API закрыты одинаково
-	handle {
-		respond 403
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
 	}
 }

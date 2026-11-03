@@ -89,7 +89,6 @@ services:
     restart: unless-stopped
     logging: *logging
     depends_on:
-      - api
       - bot
     ports:
       - '80:80'
@@ -97,10 +96,6 @@ services:
       - '443:443/udp'
     environment:
       DOMAIN: ${DOMAIN:?}
-      # Пока адрес не задан, админка слушает порт, который не опубликован: снаружи ее нет.
-      # Список адресов тоже закрыт по умолчанию: пустой .env не откроет админку всем
-      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-http://localhost:8081}
-      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-127.0.0.1/32}
     volumes:
       - caddy_data:/data
       - caddy_config:/config

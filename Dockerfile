@@ -1,4 +1,4 @@
-# Образы для сервера: api, bot и web (Caddy: HTTPS, админка, прокси к API и вебхуку бота).
+# Образы для сервера: api, bot и web (Caddy: HTTPS и вебхук бота). Админка в них не входит.
 # Собираются из deploy/docker-compose.yml, контекст — корень репозитория.
 
 FROM node:24-slim AS base
@@ -39,12 +39,5 @@ FROM server AS bot
 WORKDIR /app/apps/bot
 CMD ["node", "--import", "tsx", "src/index.ts"]
 
-FROM manifests AS admin-build
-RUN pnpm install --frozen-lockfile --filter "@rw/admin..."
-COPY packages/core packages/core
-COPY apps/admin apps/admin
-RUN pnpm --filter @rw/admin build
-
 FROM caddy:2.10-alpine AS web
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
-COPY --from=admin-build /app/apps/admin/dist /srv/admin
