@@ -1,6 +1,6 @@
 import './tls';
 
-import { DialogEngine } from '@rw/core';
+import { checkSearch, DialogEngine } from '@rw/core';
 import { errorMessage } from '@rw/runtime';
 
 import { ApiClient } from './api-client';
@@ -42,7 +42,10 @@ const control = createControlServer(apiConfig.token, async () => {
 	await content.reload();
 	logger.info('Content refreshed by internal signal', { version: content.currentVersion() });
 	return content.currentVersion();
-});
+}, text => checkSearch(() => content.get(), search, semanticPolicy, text).catch((error: unknown) => {
+	logger.error('Search check failed', { error: errorMessage(error) });
+	throw error;
+}));
 
 const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), search, {
 	onUnrecognized: async event => {

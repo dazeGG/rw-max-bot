@@ -1,3 +1,5 @@
+import type { SearchCheckResult } from '@rw/core';
+
 export type ContentRefreshResult = { ok: true; version: string; };
 
 // Вызывать после успешной фиксации изменений контента в БД, а не внутри транзакции:
@@ -21,4 +23,20 @@ export const notifyBotContentChanged = async (botControlUrl: string, token: stri
 	}
 
 	return { ok: true, version: result.version };
+};
+
+// Поиск стоит в одной очереди с вопросами пассажиров, поэтому ответ может задержаться
+export const checkBotSearch = async (botControlUrl: string, token: string, text: string): Promise<SearchCheckResult> => {
+	const response = await fetch(`${botControlUrl.replace(/\/+$/, '')}/internal/search/check`, {
+		method: 'POST',
+		headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+		body: JSON.stringify({ text }),
+		signal: AbortSignal.timeout(30_000),
+	});
+
+	if (!response.ok) {
+		throw new Error(`Bot search check responded ${response.status}`);
+	}
+
+	return await response.json() as SearchCheckResult;
 };

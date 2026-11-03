@@ -130,6 +130,15 @@ export const dialogEvents = pgTable('dialog_events', {
 	index('dialog_events_user_idx').on(table.userId, table.createdAt),
 ]);
 
+// Обработанные вопросы пассажиров. Сами вопросы лежат в dialog_events, key — хеш нормализованной фразы:
+// длинное сообщение не поместилось бы в индекс
+export const questionReviews = pgTable('question_reviews', {
+	key: varchar('key', { length: 64 }).primaryKey(),
+	status: varchar('status', { length: 20 }).notNull(),
+	adminId: integer('admin_id').notNull().references(() => admins.id),
+	reviewedAt: timestamp('reviewed_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Снимок каждой версии контента, которую API отдавал боту: на нее ссылается dialog_events.content_version
 export const contentVersions = pgTable('content_versions', {
 	version: varchar('version', { length: 64 }).primaryKey(),

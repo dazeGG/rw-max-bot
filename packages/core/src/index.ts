@@ -2,6 +2,7 @@ export * from './api';
 export * from './content/seed-data';
 export * from './content/tree';
 export * from './content/types';
+export * from './dialog/check';
 export * from './dialog/engine';
 export * from './dialog/search';
 export * from './dialog/memory-sessions';

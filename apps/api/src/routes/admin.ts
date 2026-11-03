@@ -13,6 +13,7 @@ import { MIN_PASSWORD_LENGTH } from '../auth/permissions';
 import { createSession, deleteOtherSessions, deleteSession, hashToken, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../auth/sessions';
 import { config } from '../config';
 import { contentRoutes } from './content';
+import { questionsRoutes } from './questions';
 import { staffRoutes } from './staff';
 
 const loginBody = {
@@ -145,5 +146,6 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 	});
 
 	app.register(contentRoutes, { prefix: '/content' });
+	app.register(questionsRoutes, { prefix: '/questions' });
 	app.register(staffRoutes);
 };

@@ -335,3 +335,40 @@ button {
 	border: 1px solid var(--border);
 	border-radius: 6px;
 }
+
+.questions-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+	margin-bottom: 12px;
+}
+
+.question-text {
+	overflow-wrap: anywhere;
+}
+
+.question-suggestions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 16px;
+}
+
+.question-suggestions .muted {
+	width: 100%;
+}
+
+.check-tab {
+	max-width: 720px;
+}
+
+.check-tab .muted {
+	margin: 8px 0 12px;
+}
+
+.check-options {
+	margin: 0;
+	padding-left: 20px;
+}

@@ -83,6 +83,46 @@ export type MoveNodeRequest = {
 	index: number;
 };
 
+export type QuestionSource = 'unrecognized' | 'noOption';
+
+export type QuestionReviewStatus = 'dismissed' | 'resolved';
+
+// Одинаковые вопросы объединены. phrase — вопрос без приветствия: готовая поисковая фраза.
+// offered — что бот предлагал и пассажиру не подошло, suggestions — подходящие разделы по мнению поиска
+export type PassengerQuestion = {
+	key: string;
+	text: string;
+	phrase: string;
+	sources: Record<QuestionSource, number>;
+	count: number;
+	people: number;
+	lastAt: string;
+	offered: string[];
+	suggestions: SearchCheckNode[];
+};
+
+export type QuestionReviewRequest = {
+	key: string;
+	status: QuestionReviewStatus;
+};
+
+export type SearchCheckRequest = {
+	text: string;
+};
+
+export type SearchCheckNode = {
+	id: number;
+	title: string;
+};
+
+// answer — ответит сразу; clarify — уточнит, handoff — последний пункт для тех, кому варианты не подошли;
+// none — не поймет; service — приветствие или команда меню, до поиска фраза не дойдет
+export type SearchCheckResult =
+	| { kind: 'answer'; node: SearchCheckNode; }
+	| { kind: 'clarify'; options: SearchCheckNode[]; handoff: string | null; }
+	| { kind: 'none'; }
+	| { kind: 'service'; };
+
 export type ContentApplied = {
 	version: string;
 };
