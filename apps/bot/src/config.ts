@@ -54,5 +54,7 @@ export const config = {
 		}
 		: null,
 	contentRefreshSeconds: refreshSeconds,
+	// Пока сотрудникам не открыта админка, отвечать пассажирам некому
+	supportChatEnabled: process.env.SUPPORT_CHAT_ENABLED === 'true',
 	revision: readRevision(),
 } as const;

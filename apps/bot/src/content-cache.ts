@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import { ContentTree } from '@rw/core';
+import { ContentTree, OPERATOR_CODE } from '@rw/core';
 import { errorMessage } from '@rw/runtime';
 
 import type { ApiClient } from './api-client';
@@ -19,6 +19,7 @@ export class ContentCache {
 	constructor (
 		private readonly api: ApiClient,
 		private readonly prepare: (tree: ContentTree) => Promise<void> = async () => undefined,
+		private readonly supportChatEnabled = false,
 	) {}
 
 	// Без контента отвечать нечем: при старте ждем, пока API станет доступен
@@ -47,7 +48,9 @@ export class ContentCache {
 		const snapshot = await this.api.getContent(this.tree ? this.version : undefined);
 
 		if (snapshot) {
-			const tree = new ContentTree(snapshot.nodes, snapshot.settings);
+			// Переходы на пункт оператора дерево отбросит само: цели у них больше нет
+			const nodes = this.supportChatEnabled ? snapshot.nodes : snapshot.nodes.filter(node => node.code !== OPERATOR_CODE);
+			const tree = new ContentTree(nodes, snapshot.settings);
 			// Публикуем дерево и его версию только после готовности семантического индекса.
 			// При ошибке или долгой подготовке прежний контент остаётся доступным.
 			await this.prepare(tree);

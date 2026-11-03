@@ -33,7 +33,7 @@ const searchInfo = {
 };
 logger.info('Loading semantic search', searchInfo);
 const search = await createE5Search(rerankDepth, rerankE5Weight);
-const content = new ContentCache(api, tree => search.prepare(tree));
+const content = new ContentCache(api, tree => search.prepare(tree), config.supportChatEnabled);
 await content.init(config.contentRefreshSeconds);
 logger.info('Semantic search ready', { nodes: content.get().all().length });
 
@@ -50,7 +50,7 @@ const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), s
 }, semanticPolicy);
 
 const { bot, drain, sendSupport } = createMaxBot(config.botToken, engine, {
-	support: api,
+	...config.supportChatEnabled ? { support: api } : {},
 	getContentVersion: () => content.currentVersion(),
 	onUser: user => api.touchSubscriber(user),
 	onBlocked: userId => api.markSubscriberBlocked(userId),
@@ -75,7 +75,7 @@ const control = createControlServer(apiConfig.token, {
 		logger.error('Search check failed', { error: errorMessage(error) });
 		throw error;
 	}),
-	sendSupport,
+	sendSupport: config.supportChatEnabled ? sendSupport : async () => ({ ok: false, error: 'Support chat is disabled' }),
 });
 
 // Подписку на вебхук при остановке не снимаем: MAX придержит события на время перезапуска

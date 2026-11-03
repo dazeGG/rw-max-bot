@@ -44,6 +44,21 @@ describe('content cache refresh', () => {
 		expect(cache.currentVersion()).toBe('v2');
 		cache.stop();
 	});
+	it('hides the operator items until the support chat is enabled', async () => {
+		const api = new ApiClient('http://unused', 'secret');
+		vi.spyOn(api, 'getContent').mockResolvedValue({ nodes: flattenSeed(), settings: SEED_SETTINGS, version: 'v1' });
+		const hidden = new ContentCache(api);
+		const enabled = new ContentCache(api, undefined, true);
+		await Promise.all([hidden.init(300), enabled.init(300)]);
+
+		expect(hidden.get().getByCode('operator')).toBeUndefined();
+		expect(hidden.get().getByCode('operator-menu')).toBeUndefined();
+		expect(hidden.get().getByCode('support')).toBeDefined();
+		expect(enabled.get().getByCode('operator')).toBeDefined();
+		expect(enabled.get().getByCode('operator-menu')).toBeDefined();
+		hidden.stop();
+		enabled.stop();
+	});
 	it('propagates signal failure and preserves the old tree', async () => {
 		const { cache, getContent } = await setup();
 		const tree = cache.get();
