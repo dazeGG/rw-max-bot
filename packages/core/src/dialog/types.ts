@@ -21,6 +21,8 @@ export type Session = {
 	nodeId: number | null;
 	// Exact last displayed options, not an inherited topic or a parent's unseen menu.
 	choices?: number[];
+	// Когда сессия записана в последний раз. Ставит хранилище, движок по ней решает, не устарела ли сессия
+	updatedAt?: string;
 };
 
 export interface SessionStore {

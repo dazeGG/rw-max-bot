@@ -8,6 +8,6 @@ export class MemorySessionStore implements SessionStore {
 	}
 
 	async set (userId: number, session: Session): Promise<void> {
-		this.sessions.set(userId, session);
+		this.sessions.set(userId, { ...session, updatedAt: new Date().toISOString() });
 	}
 }

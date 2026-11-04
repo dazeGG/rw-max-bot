@@ -5,12 +5,14 @@ import { isFinal, nodeReplies, renderNode, withOptions } from './reply';
 import { DEFAULT_SEARCH_POLICY } from './search';
 import type { Candidate, DialogSearch, SearchPolicy } from './search';
 import { OPERATOR_CODE } from './support';
-import { normalize, stripGreetingRaw } from './text';
+import { hasWords, normalize, stripGreetingRaw } from './text';
 import type { DialogEventDetails, DialogEvents, DialogEventType, DialogInput, DialogResult, DialogUser, Reply, Session, SessionStore } from './types';
 
 const MAX_SUGGESTIONS = 3;
 // Сколько лучших кандидатов поиска попадает в статистику
 const MAX_TRACED_CANDIDATES = 5;
+// После такой паузы диалог начинается заново: номера, «назад» и «да» больше не относятся к старому списку
+const SESSION_TTL_MS = 30 * 60 * 1000;
 
 const BACK_WORDS = new Set(['назад', 'вернуться', 'вернуться назад', 'обратно']);
 const HOME_WORDS = new Set(['меню', 'главное меню', 'в начало', 'начало', 'старт', 'start', 'в меню', 'вернуться в меню']);
@@ -51,10 +53,17 @@ export class DialogEngine {
 			return this.result('start', tree.root, null, await this.open(user, tree, tree.root));
 		}
 
-		const session = await this.sessions.get(user.id);
+		const session = await this.loadSession(user);
 		const current = tree.get(session.nodeId) ?? tree.root;
 
 		return this.handleText(user, tree, current, session, input.text);
+	}
+
+	private async loadSession (user: DialogUser): Promise<Session> {
+		const session = await this.sessions.get(user.id);
+		const expired = session.updatedAt !== undefined && Date.now() - Date.parse(session.updatedAt) > SESSION_TTL_MS;
+
+		return expired ? { nodeId: null, choices: [] } : session;
 	}
 
 	private async handleText (user: DialogUser, tree: ContentTree, current: ContentNode, session: Session, text: string): Promise<DialogResult> {
@@ -72,8 +81,9 @@ export class DialogEngine {
 		const done = (type: DialogEventType, node: ContentNode, replies: Reply[], extra: DialogEventDetails = {}) =>
 			this.result(type, node, text, replies, { ...details, ...extra });
 
-		// Чистое приветствие: стартовое сообщение и так начинается с приветствия
-		if (query.trim() === '' || rest === 'start') {
+		// Чистое приветствие: стартовое сообщение и так начинается с приветствия.
+		// Сообщение без слов (👋, 👍, «???») искать бессмысленно: модель выдала бы случайные темы
+		if (!hasWords(query) || rest === 'start') {
 			return done('start', tree.root, await this.open(user, tree, tree.root));
 		}
 

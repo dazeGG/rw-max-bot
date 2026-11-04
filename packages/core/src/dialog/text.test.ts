@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { escapeHtml, normalize, stripGreeting, stripGreetingRaw } from './text';
+import { escapeHtml, hasWords, normalize, stripGreeting, stripGreetingRaw } from './text';
 
 describe('normalize для протокольных команд', () => {
 	it('нормализует регистр, ё, пунктуацию и пробелы, не удаляя слова', () => {
@@ -10,6 +10,22 @@ describe('normalize для протокольных команд', () => {
 
 	it('убирает HTML-теги, сохраняя текст', () => {
 		expect(normalize('<b>Меню</b>')).toBe('меню');
+	});
+});
+
+describe('hasWords', () => {
+	it.each([
+		['👋', false],
+		['👍🙂', false],
+		['?!…', false],
+		['', false],
+		['билет', true],
+		['317', true],
+		['C++', true],
+		['你好', true],
+		['билет 👋', true],
+	])('%s', (text, expected) => {
+		expect(hasWords(text)).toBe(expected);
 	});
 });
 

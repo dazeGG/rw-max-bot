@@ -7,7 +7,7 @@ import { db, dialogEvents, sessions, subscribers, unrecognizedMessages } from '@
 
 export const getSession = async (userId: number): Promise<Session> => {
 	const [row] = await db.select().from(sessions).where(sql`${sessions.userId} = ${userId}`);
-	return { nodeId: row?.nodeId ?? null, choices: row?.choices ?? [] };
+	return { nodeId: row?.nodeId ?? null, choices: row?.choices ?? [], updatedAt: row?.updatedAt.toISOString() };
 };
 
 export const setSession = async (userId: number, session: Session): Promise<void> => {

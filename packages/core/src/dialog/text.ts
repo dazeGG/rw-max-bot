@@ -11,6 +11,9 @@ export const normalize = (text: string): string => text
 	.replace(/\s+/g, ' ')
 	.trim();
 
+// Без букв и цифр (эмодзи, пунктуация) сравнивать с контентом нечего
+export const hasWords = (text: string): boolean => /[\p{L}\p{N}]/u.test(text);
+
 export const stripGreetingRaw = (text: string): { greeting: boolean; rest: string } => {
 	const raw = text.trim();
 	const match = GREETING.exec(raw);

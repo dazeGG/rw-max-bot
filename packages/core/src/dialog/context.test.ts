@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ContentTree } from '../content/tree';
 import { DEFAULT_SETTINGS } from '../content/types';
@@ -134,6 +134,77 @@ describe('content-independent conversation state', () => {
 		const next = await f.say('продление');
 		expect(next.event.nodeCode).toBe(f.books.code);
 		expect(f.rank.mock.calls.every(call => call[3] === undefined)).toBe(true);
+	});
+});
+
+describe('session lifetime', () => {
+	const NOW = Date.UTC(2026, 10, 4, 12);
+	const pause = (minutes: number) => vi.setSystemTime(NOW + minutes * 60_000);
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const atRegistration = async () => {
+		vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+		const f = fixture();
+		await f.sessions.set(f.user.id, { nodeId: f.registration.id, choices: [f.online.id, f.desk.id] });
+		return f;
+	};
+
+	it('a number still selects from the displayed list during the conversation', async () => {
+		const f = await atRegistration();
+		pause(29);
+		expect((await f.say('2')).event).toMatchObject({ type: 'option', nodeCode: f.desk.code });
+	});
+
+	it('after a long pause a number no longer selects from the old list', async () => {
+		const f = await atRegistration();
+		pause(31);
+		const { event } = await f.say('2');
+
+		expect(event.type).toBe('unrecognized');
+		expect(event.details).toMatchObject({ fromNodeCode: f.root.code, shown: [] });
+	});
+
+	it('after a long pause «назад» leads to the start, not to the old section', async () => {
+		const f = await atRegistration();
+		await f.sessions.set(f.user.id, { nodeId: f.online.id, choices: [] });
+		pause(31);
+		expect((await f.say('назад')).event).toMatchObject({ type: 'back', nodeCode: f.root.code });
+	});
+
+	it('after a long pause «да» is not an answer to the old «anything else?»', async () => {
+		const f = await atRegistration();
+		await f.sessions.set(f.user.id, { nodeId: f.article.id, choices: [] });
+		expect((await f.say('да')).event.type).toBe('more');
+
+		await f.sessions.set(f.user.id, { nodeId: f.article.id, choices: [] });
+		pause(31);
+		expect((await f.say('да')).event.type).not.toBe('more');
+	});
+
+	it('after a long pause the old options do not influence the search', async () => {
+		const f = await atRegistration();
+		f.rank.mockImplementation(async (_tree, _nodes, _text, mode) => mode === 'options' ? f.results([f.online, 0.98], [f.desk, 0.5]) : []);
+		expect((await f.say('через интернет')).event).toMatchObject({ type: 'answer', nodeCode: f.online.code });
+
+		await f.sessions.set(f.user.id, { nodeId: f.registration.id, choices: [f.online.id, f.desk.id] });
+		f.rank.mockClear();
+		pause(31);
+		expect((await f.say('через интернет')).event.type).toBe('unrecognized');
+		expect(f.rank.mock.calls.every(call => call[3] === undefined)).toBe(true);
+	});
+
+	it('every message restarts the countdown', async () => {
+		const f = await atRegistration();
+		pause(20);
+		await f.say('1');
+		pause(40);
+		const { event } = await f.say('назад');
+
+		// 20 минут с прошлого сообщения: сессия жива, «назад» из «Онлайн» ведет в его раздел
+		expect(event).toMatchObject({ type: 'back', nodeCode: f.registration.code });
 	});
 });
 

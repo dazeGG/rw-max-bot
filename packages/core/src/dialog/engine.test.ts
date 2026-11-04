@@ -319,6 +319,24 @@ describe('протокольная навигация не требует мод
 		expect(rank).not.toHaveBeenCalled();
 	});
 
+	// Сообщение без букв и цифр модели не с чем сравнить: на 👋 она выдавала случайные темы как «Уточните…»
+	it.each(['👋', 'Привет 👋', '👍', '???', '🙂🙂'])('%s открывает главное меню без поиска', async text => {
+		await at('schedule-trains');
+		const { event } = await say(text);
+
+		expect(event).toMatchObject({ type: 'start', nodeCode: 'root' });
+		expect(await currentCode()).toBe('root');
+		expect(rank).not.toHaveBeenCalled();
+	});
+
+	it('эмодзи рядом с вопросом не мешает поиску', async () => {
+		rank.mockResolvedValue(candidates(['buy', 0.9]));
+		const { event } = await say('👋 где купить билет?');
+
+		expect(event).toMatchObject({ type: 'answer', nodeCode: 'buy' });
+		expect(rank.mock.calls[0][2]).toBe('👋 где купить билет?');
+	});
+
 	it('приветствие с вопросом сохраняется перед ответом', async () => {
 		rank.mockResolvedValue(candidates(['buy', 0.9]));
 		const { replies, event } = await say('Здравствуйте, где купить билет?');
