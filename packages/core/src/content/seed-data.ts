@@ -2,7 +2,9 @@
 // В БД попадает командой `pnpm db:seed`, дальше редактируется через веб-панель.
 
 import { OPERATOR_CODE, OPERATOR_MENU_CODE } from '../dialog/support';
+import { tablesSearchText } from '../tables';
 
+import { SEED_TABLES } from './tables-data';
 import { DEFAULT_SETTINGS, ROOT_CODE } from './types';
 import type { ContentNode, ContentTable, NodeType, Settings } from './types';
 
@@ -152,19 +154,6 @@ export const SEED_TREE: SeedNode = {
 					title: 'Тарифы в вагонах ЖДЯ',
 					text: '<b>Тарифы в вагонах ЖДЯ</b>',
 					image: 'generated/tariffs.jpg',
-					imageText: 'На проезд в поездах №317, №327 / №318, №328. Цена билета со станции Нижний Бестях: плацкарт, купе\n\n' +
-						'Томмот: плацкарт 2 039 ₽, купе от 2 803 ₽\n' +
-						'Алдан: плацкарт 2 261 ₽, купе от 3 145 ₽\n' +
-						'Нерюнгри: плацкарт 2 759 ₽, купе от 3 912 ₽\n' +
-						'Тында: плацкарт 3 427 ₽, купе от 4 938 ₽\n' +
-						'Белогорск: плацкарт 4 981 ₽, купе от 7 326 ₽\n' +
-						'Благовещенск: плацкарт 5 425 ₽, купе от 8 797 ₽\n' +
-						'Хабаровск: плацкарт 6 996 ₽, купе от 10 390 ₽\n' +
-						'Уссурийск: плацкарт 8 941 ₽, купе от 13 367 ₽\n' +
-						'Владивосток: плацкарт 8 941 ₽, купе от 13 367 ₽\n' +
-						'Чита: плацкарт 6 996 ₽\n' +
-						'Улан-Удэ: плацкарт 8 454 ₽\n' +
-						'Иркутск: плацкарт 9 426 ₽',
 					synonyms: ['ждя', 'тарифы ждя', 'вагоны ждя', 'в вагонах ждя'],
 				},
 				{
@@ -600,6 +589,7 @@ export const flattenSeed = (tree: SeedNode = SEED_TREE): ContentNode[] => {
 			throw new Error(`Duplicate node code "${seed.code}"`);
 		}
 
+		const tables = seed.tables ?? SEED_TABLES[seed.code] ?? null;
 		const node: ContentNode = {
 			id: nodes.length + 1,
 			parentId,
@@ -610,8 +600,8 @@ export const flattenSeed = (tree: SeedNode = SEED_TREE): ContentNode[] => {
 			url: seed.url ?? null,
 			targetId: null,
 			image: seed.image ?? null,
-			imageText: seed.imageText ?? null,
-			tables: seed.tables ?? null,
+			imageText: seed.imageText ?? (tables ? tablesSearchText(tables) || null : null),
+			tables,
 			file: seed.file ?? null,
 			fileName: seed.fileName ?? null,
 			synonyms: seed.synonyms ?? [],

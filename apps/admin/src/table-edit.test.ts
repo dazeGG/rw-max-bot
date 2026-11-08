@@ -87,6 +87,13 @@ describe('autoLayout', () => {
 		expect(autoLayout(rows)).toEqual({ width: '45rem', grid: '2fr 1fr 1fr 1fr' });
 	});
 
+	it('ячейка с переводами строк занимает ширину самой длинной строки', () => {
+		const lines = [['а', 'б'], ['1234567890\n1234567890\n1234567890', 'x']];
+		const flat = [['а', 'б'], ['1234567890', 'x']];
+
+		expect(autoLayout(lines)).toEqual(autoLayout(flat));
+	});
+
 	it('одинаковые столбцы получают равные доли', () => {
 		expect(autoLayout([['aaaa', 'bbbb'], ['cccc', 'dddd']]).grid).toBe('1fr 1fr');
 	});

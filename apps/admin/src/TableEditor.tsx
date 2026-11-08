@@ -23,7 +23,7 @@ const TableBlock = ({ table, index, removable, onChange, onRemove }: TableBlockP
 	const setRows = (next: string[][]) => onChange({ ...table, rows: next });
 
 	// Блок из Excel (табы и переводы строк) раскладывается по ячейкам от выбранной; обычный текст вставляется как всегда
-	const paste = (event: ClipboardEvent<HTMLInputElement>, row: number, column: number) => {
+	const paste = (event: ClipboardEvent<HTMLTextAreaElement>, row: number, column: number) => {
 		const text = event.clipboardData.getData('text/plain');
 
 		if (/[\t\n\r]/.test(text)) {
@@ -40,7 +40,8 @@ const TableBlock = ({ table, index, removable, onChange, onRemove }: TableBlockP
 			extra={removable && <Button size="small" danger icon={<DeleteOutlined />} onClick={onRemove}>Удалить таблицу</Button>}
 		>
 			<div className="table-meta">
-				<Input
+				<Input.TextArea
+					autoSize={{ minRows: 1 }}
 					placeholder="Заголовок"
 					maxLength={200}
 					value={table.title}
@@ -79,7 +80,8 @@ const TableBlock = ({ table, index, removable, onChange, onRemove }: TableBlockP
 							<tr key={row} className={row === 0 ? 'table-grid-head' : undefined}>
 								{line.map((cell, column) => (
 									<td key={column}>
-										<Input
+										<Input.TextArea
+											autoSize={{ minRows: 1 }}
 											value={cell}
 											maxLength={200}
 											aria-label={`Строка ${row + 1}, столбец ${column + 1}`}

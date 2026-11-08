@@ -106,8 +106,10 @@ const WIDTH_MAX_REM = 80;
  */
 export const autoLayout = (rows: string[][]): { width: string; grid: string; } => {
 	const columns = rows[0]?.length ?? 0;
+	// Ячейка с переводами строк занимает по ширине самую длинную из своих строк
+	const widest = (cell = '') => Math.max(...cell.split('\n').map(part => part.trim().length));
 	const chars = Array.from({ length: columns }, (_, x) =>
-		Math.min(COLUMN_CHARS_MAX, Math.max(3, ...rows.map(line => (line[x] ?? '').trim().length))));
+		Math.min(COLUMN_CHARS_MAX, Math.max(3, ...rows.map(line => widest(line[x])))));
 	const weights = chars.map(length => length ** 0.6);
 	const lightest = Math.min(...weights);
 	const fractions = weights.map(weight => Math.max(1, Math.round(weight / lightest)));

@@ -85,6 +85,13 @@
       "when": 1794161771482,
       "tag": "0011_content_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794171862082,
+      "tag": "0012_content_tables_data",
+      "breakpoints": true
     }
   ]
 }
