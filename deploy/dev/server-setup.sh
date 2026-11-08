@@ -41,6 +41,7 @@ if [ ! -f "$ENV_FILE" ]; then
 DOMAIN=rw-bot.dazinho.ru
 ADMIN_DOMAIN=admin-rw-bot.dazinho.ru
 BOT_TOKEN=
+BOT_USERNAME=id1435073060_bot
 POSTGRES_PASSWORD=$(secret)
 INTERNAL_API_TOKEN=$(secret)
 WEBHOOK_SECRET=$(secret)

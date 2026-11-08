@@ -1405,3 +1405,11 @@ code {
 		border-bottom: 1px solid var(--split);
 	}
 }
+
+.max-link {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 16px;
+	text-align: center;
+}

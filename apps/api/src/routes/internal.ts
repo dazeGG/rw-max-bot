@@ -6,8 +6,9 @@ import { Readable } from 'node:stream';
 
 import type { FastifyPluginAsync } from 'fastify';
 
-import type { BotLeaseRequest, DialogEventRecord, DialogUser, Session, SupportInboundRequest, UnrecognizedEvent, UploadKind } from '@rw/core';
+import type { BotLeaseRequest, DialogEventRecord, DialogUser, Session, StaffMaxLinkRequest, SupportInboundRequest, UnrecognizedEvent, UploadKind } from '@rw/core';
 
+import { consumeMaxLink } from '../auth/max-link';
 import type { BotLease } from '../bot-lease';
 import { config } from '../config';
 import { loadContent } from '../content';
@@ -98,6 +99,15 @@ const dialogEventBody = {
 	},
 } as const;
 
+const staffMaxLinkBody = {
+	type: 'object',
+	required: ['code', 'userId'],
+	properties: {
+		code: { type: 'string', minLength: 1, maxLength: 128 },
+		userId: { type: 'integer' },
+	},
+} as const;
+
 const leaseBody = {
 	type: 'object',
 	required: ['instanceId'],
@@ -115,6 +125,8 @@ export const internalRoutes = (lease: BotLease): FastifyPluginAsync => async app
 
 	// Вложения пассажира: файл сразу пишется на диск и не копится в памяти
 	app.addContentTypeParser('application/octet-stream', (_request, payload, done) => done(null, payload));
+
+	app.post<{ Body: StaffMaxLinkRequest; }>('/staff/max-link', { schema: { body: staffMaxLinkBody } }, request => consumeMaxLink(request.body));
 
 	app.post<{ Body: DialogUser; }>('/support/tickets', { schema: { body: subscriberBody } }, async request => ({ text: await openTicket(request.body) }));
 

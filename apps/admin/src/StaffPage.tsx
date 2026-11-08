@@ -1,4 +1,4 @@
-import { EllipsisOutlined, LockOutlined, StopOutlined, UserAddOutlined } from '@ant-design/icons';
+import { DisconnectOutlined, EllipsisOutlined, LockOutlined, StopOutlined, UserAddOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntApp, Badge, Button, Card, Dropdown, Form, Input, Modal, Select, Table, Tag } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
@@ -126,6 +126,7 @@ const StaffTable = ({ user, editor, setEditor }: { user: AdminUser; editor: Edit
 		},
 		onError: showError,
 	});
+	const resetMax = useMutation({ mutationFn: api.resetStaffMax, onSuccess: refresh, onError: showError });
 	const disable = useMutation({ mutationFn: api.disableStaff, onSuccess: refresh, onError: showError });
 	const enable = useMutation({ mutationFn: api.enableStaff, onSuccess: refresh, onError: showError });
 
@@ -137,6 +138,14 @@ const StaffTable = ({ user, editor, setEditor }: { user: AdminUser; editor: Edit
 		okText: member.hasPassword ? 'Сбросить' : 'Выдать',
 		cancelText: 'Отмена',
 		onOk: () => reissue.mutate(member.id),
+	});
+
+	const askResetMax = (member: StaffMember) => modal.confirm({
+		title: `Сбросить привязку MAX: ${member.fullName}?`,
+		content: 'Чтобы продолжить работу, сотруднику придется привязать профиль MAX заново.',
+		okText: 'Сбросить',
+		cancelText: 'Отмена',
+		onOk: () => resetMax.mutate(member.id),
 	});
 
 	const askDisable = (member: StaffMember) => modal.confirm({
@@ -156,6 +165,9 @@ const StaffTable = ({ user, editor, setEditor }: { user: AdminUser; editor: Edit
 				{ key: 'reissue', icon: <LockOutlined />, label: member.hasPassword ? 'Сбросить пароль' : 'Новая ссылка', onClick: () => askReissue(member) },
 				{ type: 'divider' as const },
 			]),
+		...(member.maxLinked
+			? [{ key: 'max-reset', icon: <DisconnectOutlined />, label: 'Сбросить привязку MAX', onClick: () => askResetMax(member) }]
+			: []),
 		{ key: 'disable', icon: <StopOutlined />, label: 'Отключить', danger: true, onClick: () => askDisable(member) },
 	];
 
@@ -175,6 +187,12 @@ const StaffTable = ({ user, editor, setEditor }: { user: AdminUser; editor: Edit
 		},
 		{ title: 'Роль', dataIndex: 'role', width: 150, render: (role: AdminRole) => <Tag color={ROLE_COLORS[role]}>{ROLE_LABELS[role]}</Tag> },
 		{ title: 'Статус', key: 'status', width: 260, render: (_, member) => <StatusBadge member={member} /> },
+		{
+			title: 'MAX',
+			dataIndex: 'maxLinked',
+			width: 120,
+			render: (linked: boolean) => linked ? <Badge status="success" text="Привязан" /> : <span className="muted">Нет</span>,
+		},
 		{
 			title: 'Последний вход',
 			dataIndex: 'lastLoginAt',
@@ -224,7 +242,7 @@ const StaffTable = ({ user, editor, setEditor }: { user: AdminUser; editor: Edit
 					dataSource={staff.data}
 					columns={columns}
 					pagination={false}
-					scroll={{ x: 860 }}
+					scroll={{ x: 980 }}
 				/>
 			</Card>
 			{editor && <StaffEditor state={editor} user={user} onClose={() => setEditor(null)} onInvite={setInvite} />}

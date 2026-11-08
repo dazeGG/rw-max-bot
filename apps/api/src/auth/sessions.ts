@@ -5,6 +5,8 @@ import { and, eq, gt, lt, ne, sql } from 'drizzle-orm';
 import type { AdminUser } from '@rw/core';
 import { adminSessions, admins, db } from '@rw/db';
 
+import { requiresMaxLink } from './permissions';
+
 export const SESSION_COOKIE = 'rw_admin_session';
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
@@ -25,14 +27,19 @@ export const createSession = async (adminId: number): Promise<string> => {
 	return token;
 };
 
+export const toAdminUser = ({ id, login, fullName, role, maxUserId }: Pick<AdminUser, 'id' | 'login' | 'fullName' | 'role'> & { maxUserId: number | null; }): AdminUser => {
+	const maxLinked = maxUserId !== null;
+	return { id, login, fullName, role, maxLinked, maxLinkRequired: requiresMaxLink(role, maxLinked) };
+};
+
 export const findSessionAdmin = async (token: string): Promise<AdminUser | null> => {
 	const [row] = await db
-		.select({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role })
+		.select({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role, maxUserId: admins.maxUserId })
 		.from(adminSessions)
 		.innerJoin(admins, eq(admins.id, adminSessions.adminId))
 		.where(and(eq(adminSessions.tokenHash, hashToken(token)), gt(adminSessions.expiresAt, sql`now()`), eq(admins.isActive, true)));
 
-	return row ?? null;
+	return row ? toAdminUser(row) : null;
 };
 
 export const deleteSession = async (token: string): Promise<void> => {

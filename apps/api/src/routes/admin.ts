@@ -3,14 +3,15 @@
 import { and, eq, gt, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 
-import type { AcceptInviteRequest, AdminUser, ChangePasswordRequest, LoginRequest } from '@rw/core';
+import type { AcceptInviteRequest, ChangePasswordRequest, LoginRequest } from '@rw/core';
 import { adminInvites, adminSessions, admins, db } from '@rw/db';
 
-import { requireAdmin } from '../auth/guards';
+import { requireAdmin, requireSession } from '../auth/guards';
 import { findInvite } from '../auth/invites';
+import { issueMaxLink, maxLinkStatus } from '../auth/max-link';
 import { hashPassword, verifyPassword } from '../auth/password';
 import { MIN_PASSWORD_LENGTH } from '../auth/permissions';
-import { createSession, deleteOtherSessions, deleteSession, hashToken, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../auth/sessions';
+import { createSession, deleteOtherSessions, deleteSession, hashToken, SESSION_COOKIE, SESSION_TTL_SECONDS, toAdminUser } from '../auth/sessions';
 import { config } from '../config';
 import { contentRoutes } from './content';
 import { questionsRoutes } from './questions';
@@ -74,8 +75,7 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 
 		await signIn(reply, admin.id);
 
-		const user: AdminUser = { id: admin.id, login: admin.login, fullName: admin.fullName, role: admin.role };
-		return user;
+		return toAdminUser(admin);
 	});
 
 	app.post('/auth/logout', async (request, reply) => {
@@ -93,7 +93,11 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 		return reply.clearCookie(SESSION_COOKIE, { path: '/api' }).code(204).send();
 	});
 
-	app.get('/auth/me', { preHandler: requireAdmin }, async request => request.admin);
+	app.get('/auth/me', { preHandler: requireSession }, async request => request.admin);
+
+	app.post('/auth/max-link', { preHandler: requireSession }, request => issueMaxLink(request.admin!.id));
+
+	app.get('/auth/max-link', { preHandler: requireSession }, request => maxLinkStatus(request.admin!.id));
 
 	app.post<{ Body: ChangePasswordRequest; }>('/auth/password', { preHandler: requireAdmin, schema: { body: changePasswordBody } }, async (request, reply) => {
 		const adminId = request.admin!.id;
@@ -131,7 +135,7 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 			const [row] = await tx.update(admins)
 				.set({ passwordHash })
 				.where(and(eq(admins.id, invite.adminId), eq(admins.isActive, true)))
-				.returning({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role });
+				.returning({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role, maxUserId: admins.maxUserId });
 
 			return row ?? null;
 		});
@@ -142,8 +146,7 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 
 		await signIn(reply, admin.id);
 
-		const user: AdminUser = admin;
-		return user;
+		return toAdminUser(admin);
 	});
 
 	app.register(contentRoutes, { prefix: '/content' });

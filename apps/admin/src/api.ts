@@ -14,6 +14,8 @@ import type {
 	CreateStaffRequest,
 	InviteInfo,
 	LoginRequest,
+	MaxLinkInfo,
+	MaxLinkStatus,
 	MoveNodeRequest,
 	PassengerQuestion,
 	QuestionReviewRequest,
@@ -42,6 +44,9 @@ export class UnauthorizedError extends Error {}
 // Запись опоздала: данные на сервере уже изменились
 export class ConflictError extends Error {}
 
+// Привязку MAX сбросили, пока сотрудник работал
+export class MaxLinkRequiredError extends Error {}
+
 const parse = async <T>(response: Response): Promise<T> => {
 	if (!response.ok) {
 		const body = await response.json().catch(() => null) as ApiError | null;
@@ -49,6 +54,10 @@ const parse = async <T>(response: Response): Promise<T> => {
 
 		if (response.status === 401) {
 			throw new UnauthorizedError(message);
+		}
+
+		if (body?.code === 'max_link_required') {
+			throw new MaxLinkRequiredError(message);
 		}
 
 		throw response.status === 409 ? new ConflictError(message) : new Error(message);
@@ -73,6 +82,8 @@ export const api = {
 	logout: () => request<void>('/auth/logout', { method: 'POST' }),
 	logoutAll: () => request<void>('/auth/logout-all', { method: 'POST' }),
 	changePassword: (body: ChangePasswordRequest) => request<void>('/auth/password', { method: 'POST', body }),
+	createMaxLink: () => request<MaxLinkInfo>('/auth/max-link', { method: 'POST' }),
+	maxLinkStatus: () => request<MaxLinkStatus>('/auth/max-link'),
 	invite: (token: string) => request<InviteInfo>(`/invites/${encodeURIComponent(token)}`),
 	acceptInvite: (token: string, body: AcceptInviteRequest) => request<AdminUser>(`/invites/${encodeURIComponent(token)}`, { method: 'POST', body }),
 	content: () => request<ContentResponse>('/content'),
@@ -118,6 +129,7 @@ export const api = {
 	createStaff: (body: CreateStaffRequest) => request<StaffInvite>('/staff', { method: 'POST', body }),
 	updateStaff: (id: number, body: UpdateStaffRequest) => request<void>(`/staff/${id}`, { method: 'PATCH', body }),
 	reissueInvite: (id: number) => request<StaffInvite>(`/staff/${id}/invite`, { method: 'POST' }),
+	resetStaffMax: (id: number) => request<void>(`/staff/${id}/max-reset`, { method: 'POST' }),
 	disableStaff: (id: number) => request<void>(`/staff/${id}/disable`, { method: 'POST' }),
 	enableStaff: (id: number) => request<void>(`/staff/${id}/enable`, { method: 'POST' }),
 	auditLog: () => request<AuditEntry[]>('/audit-log'),

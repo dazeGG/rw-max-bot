@@ -50,6 +50,67 @@ beforeEach(() => {
 	handlers.clear();
 });
 
+describe('MAX staff link', () => {
+	const engine = () => {
+		const process = vi.fn(async () => result);
+		return { process, engine: { process } as unknown as DialogEngine };
+	};
+	const started = (startPayload: string | null) => ({
+		user: { user_id: 7, first_name: 'Иван', is_bot: false },
+		startPayload,
+		update: { update_type: 'bot_started', timestamp: Date.now(), payload: startPayload },
+	});
+
+	it('links by the code from the link and does not start a dialog', async () => {
+		const { process, engine: dialog } = engine();
+		const linkStaff = vi.fn(async () => ({ status: 'linked' as const, fullName: 'Иван Иванов' }));
+		const onEvent = vi.fn();
+		const { drain } = createMaxBot('test-token', dialog, { linkStaff, onEvent });
+
+		await handlers.get('bot_started')!(started('staff_secret-code'));
+		await drain();
+
+		expect(linkStaff).toHaveBeenCalledWith({ code: 'secret-code', userId: 7 });
+		expect(sendMessageToUser).toHaveBeenCalledWith(7, 'Профиль привязан: Иван Иванов.');
+		expect(process).not.toHaveBeenCalled();
+		expect(onEvent).not.toHaveBeenCalled();
+	});
+
+	it('explains why the link did not work', async () => {
+		const linkStaff = vi.fn(async () => ({ status: 'taken' as const }));
+		createMaxBot('test-token', engine().engine, { linkStaff });
+
+		await handlers.get('bot_started')!(started('staff_secret-code'));
+
+		expect(sendMessageToUser).toHaveBeenCalledWith(7, 'Этот профиль MAX уже привязан к другому сотруднику.');
+	});
+
+	it('answers when the API is down', async () => {
+		const linkStaff = vi.fn(async () => {
+			throw new Error('API is down');
+		});
+		createMaxBot('test-token', engine().engine, { linkStaff });
+
+		await handlers.get('bot_started')!(started('staff_secret-code'));
+
+		expect(sendMessageToUser).toHaveBeenCalledWith(7, 'Не удалось привязать профиль. Попробуйте, пожалуйста, ещё раз.');
+	});
+
+	it('starts a normal dialog for any other start', async () => {
+		for (const payload of [null, 'test123']) {
+			const { process, engine: dialog } = engine();
+			const linkStaff = vi.fn();
+			const { drain } = createMaxBot('test-token', dialog, { linkStaff });
+
+			await handlers.get('bot_started')!(started(payload));
+			await drain();
+
+			expect(linkStaff).not.toHaveBeenCalled();
+			expect(process).toHaveBeenCalledOnce();
+		}
+	});
+});
+
 describe('MAX support routing', () => {
 	const engineWith = (answer: DialogResult = result) => {
 		const process = vi.fn(async () => answer);

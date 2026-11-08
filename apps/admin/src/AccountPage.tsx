@@ -1,12 +1,14 @@
 import { useMutation } from '@tanstack/react-query';
-import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input } from 'antd';
+import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Modal } from 'antd';
+import { useCallback, useState } from 'react';
 
 import type { AdminUser } from '@rw/core';
 
 import { api } from './api';
+import { MaxLinkPanel } from './MaxLink';
 import { PageHeader } from './page';
 import { PasswordFields } from './PasswordFields';
-import { errorText, ROLE_LABELS, signedOut } from './session';
+import { errorText, refreshMe, ROLE_LABELS, signedOut } from './session';
 
 type PasswordForm = { currentPassword: string; password: string; };
 
@@ -24,6 +26,14 @@ export const AccountPage = ({ user }: { user: AdminUser; }) => {
 
 	const logoutAll = useMutation({ mutationFn: api.logoutAll, onSuccess: signedOut });
 
+	const [linking, setLinking] = useState(false);
+
+	const linked = useCallback(() => {
+		setLinking(false);
+		void refreshMe();
+		void message.success('Профиль MAX привязан');
+	}, [message]);
+
 	return (
 		<>
 			<PageHeader title="Профиль" />
@@ -34,6 +44,15 @@ export const AccountPage = ({ user }: { user: AdminUser; }) => {
 						{ key: 'login', label: 'Логин', children: user.login },
 						{ key: 'role', label: 'Роль', children: ROLE_LABELS[user.role] },
 					]} />
+				</Card>
+				<Card title="Профиль MAX">
+					<p>{user.maxLinked ? 'Привязан' : 'Не привязан'}</p>
+					<Button onClick={() => setLinking(true)}>{user.maxLinked ? 'Перепривязать' : 'Привязать'}</Button>
+					{linking && (
+						<Modal open title="Привязка профиля MAX" footer={null} onCancel={() => setLinking(false)}>
+							<MaxLinkPanel onDone={linked} />
+						</Modal>
+					)}
 				</Card>
 				<Card title="Сменить пароль">
 					<Form form={form} layout="vertical" requiredMark={false} onFinish={values => changePassword.mutate(values)}>

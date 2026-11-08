@@ -26,4 +26,6 @@ export const config = {
 	botControlUrl: process.env.BOT_CONTROL_URL ?? 'http://127.0.0.1:3002',
 	// На сервере админка работает по HTTPS: cookie сессии не уходит по открытому HTTP
 	secureCookies: process.env.ADMIN_COOKIE_SECURE === 'true',
+	// Никнейм бота для ссылки привязки MAX; без него привязка не выдается
+	botUsername: process.env.BOT_USERNAME || null,
 } as const;

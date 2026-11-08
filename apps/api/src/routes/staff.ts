@@ -4,7 +4,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import type { AdminRole, AdminUser, AuditEntry, CreateStaffRequest, StaffInvite, StaffMember, UpdateStaffRequest } from '@rw/core';
-import { adminInvites, adminSessions, admins, auditLog, db } from '@rw/db';
+import { adminInvites, adminMaxLinks, adminSessions, admins, auditLog, db } from '@rw/db';
 
 import { publishQueued, releaseTicketsOf } from '../support';
 import { disconnectAdmin } from '../support-hub';
@@ -96,6 +96,7 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 				fullName: admins.fullName,
 				role: admins.role,
 				isActive: admins.isActive,
+				maxLinked: sql<boolean>`${admins.maxUserId} is not null`,
 				hasPassword: sql<boolean>`${admins.passwordHash} is not null`,
 				lastLoginAt: admins.lastLoginAt,
 				inviteExpiresAt: adminInvites.expiresAt,
@@ -186,6 +187,22 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 
 			return issueInvite(tx, target.id);
 		});
+	});
+
+	// Сотрудник потерял аккаунт: при следующем запросе он попадет на экран привязки
+	app.post<{ Params: { id: number; }; }>('/staff/:id/max-reset', { preHandler: managers, schema: { params: idParams } }, async (request, reply) => {
+		const actor = actorOf(request);
+
+		await db.transaction(async tx => {
+			const target = await getManagedTarget(tx, actor, request.params.id);
+
+			assertNotSelf(actor, target.id, 'Свою привязку можно изменить в профиле');
+			await tx.update(admins).set({ maxUserId: null }).where(eq(admins.id, target.id));
+			await tx.delete(adminMaxLinks).where(eq(adminMaxLinks.adminId, target.id));
+			await audit(tx, actor, 'staff.max_reset', target);
+		});
+
+		return reply.code(204).send();
 	});
 
 	app.post<{ Params: { id: number; }; }>('/staff/:id/disable', { preHandler: managers, schema: { params: idParams } }, async (request, reply) => {

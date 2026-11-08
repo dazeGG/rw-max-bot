@@ -1,4 +1,4 @@
-import type { BotLeaseRequest, ContentSnapshot, DialogEventRecord, DialogUser, Session, SupportInboundRequest, SupportInboundResult, SupportStatus, UnrecognizedEvent, UploadKind, UploadResult } from '@rw/core';
+import type { BotLeaseRequest, ContentSnapshot, DialogEventRecord, DialogUser, Session, StaffMaxLinkRequest, StaffMaxLinkResult, SupportInboundRequest, SupportInboundResult, SupportStatus, UnrecognizedEvent, UploadKind, UploadResult } from '@rw/core';
 
 // Зависший API не должен задерживать ответ пользователю дольше этого
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -57,6 +57,10 @@ export class ApiClient {
 
 	async markSubscriberBlocked (userId: number): Promise<void> {
 		await this.request('POST', `/subscribers/${userId}/blocked`);
+	}
+
+	async linkStaffMax (request: StaffMaxLinkRequest): Promise<StaffMaxLinkResult> {
+		return await (await this.request('POST', '/staff/max-link', { body: request })).json() as StaffMaxLinkResult;
 	}
 
 	async openSupportTicket (user: DialogUser): Promise<string> {

@@ -2,7 +2,7 @@ import { MutationCache, QueryCache, QueryClient, useQuery } from '@tanstack/reac
 
 import type { AdminRole, AdminUser } from '@rw/core';
 
-import { api, UnauthorizedError } from './api';
+import { api, MaxLinkRequiredError, UnauthorizedError } from './api';
 
 const ME_KEY = ['me'];
 
@@ -20,9 +20,21 @@ export const signedIn = (user: AdminUser) => {
 	queryClient.setQueryData(ME_KEY, user);
 };
 
+export const logOut = async () => {
+	await api.logout();
+	signedOut();
+};
+
+// Перечитать сотрудника: привязка MAX могла измениться
+export const refreshMe = () => queryClient.invalidateQueries({ queryKey: ME_KEY });
+
 const onError = (error: unknown) => {
 	if (error instanceof UnauthorizedError) {
 		signedOut();
+	}
+
+	if (error instanceof MaxLinkRequiredError) {
+		void refreshMe();
 	}
 };
 

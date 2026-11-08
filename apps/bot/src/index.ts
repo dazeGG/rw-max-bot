@@ -54,6 +54,7 @@ const { bot, drain, sendSupport } = createMaxBot(config.botToken, engine, {
 	getContentVersion: () => content.currentVersion(),
 	onUser: user => api.touchSubscriber(user),
 	onBlocked: userId => api.markSubscriberBlocked(userId),
+	linkStaff: request => api.linkStaffMax(request),
 	// Статистика не должна задерживать ответ: запись уходит в фоне
 	onEvent: event => {
 		void api.saveDialogEvent({

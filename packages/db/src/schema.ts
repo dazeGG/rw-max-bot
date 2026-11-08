@@ -67,6 +67,8 @@ export const admins = pgTable('admins', {
 	isActive: boolean('is_active').notNull().default(true),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+	// Профиль MAX сотрудника: один профиль нельзя привязать к двум сотрудникам
+	maxUserId: bigint('max_user_id', { mode: 'number' }).unique(),
 }, table => [
 	check('admins_role_check', sql`${table.role} in ('superadmin', 'admin', 'support')`),
 ]);
@@ -80,6 +82,14 @@ export const adminSessions = pgTable('admin_sessions', {
 }, table => [
 	index('admin_sessions_admin_idx').on(table.adminId),
 ]);
+
+// Одноразовые коды привязки профиля MAX. У сотрудника действует только последний; при успешной привязке строка удаляется
+export const adminMaxLinks = pgTable('admin_max_links', {
+	tokenHash: varchar('token_hash', { length: 64 }).primaryKey(),
+	adminId: integer('admin_id').notNull().unique().references(() => admins.id, { onDelete: 'cascade' }),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
 
 // Одноразовые ссылки для задания пароля: при добавлении сотрудника и при сбросе. У сотрудника действует только последняя
 export const adminInvites = pgTable('admin_invites', {

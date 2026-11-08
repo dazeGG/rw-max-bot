@@ -24,6 +24,8 @@ export const ACTION_LABELS: Record<string, string> = {
 	'staff.create': 'Добавление сотрудника',
 	'staff.update': 'Изменение сотрудника',
 	'staff.reset_password': 'Сброс пароля',
+	'staff.max_linked': 'Привязка MAX',
+	'staff.max_reset': 'Сброс привязки MAX',
 	'staff.disable': 'Отключение',
 	'staff.enable': 'Включение',
 	'content.create': 'Новый пункт',

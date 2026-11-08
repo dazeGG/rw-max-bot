@@ -301,7 +301,32 @@ export type AdminUser = {
 	login: string;
 	fullName: string;
 	role: AdminRole;
+	maxLinked: boolean;
+	// Без привязки админка закрыта. Правило считает API, интерфейс только показывает экран привязки
+	maxLinkRequired: boolean;
 };
+
+// Код привязки сотрудника в ссылке на бота; без этого префикса запуск по ссылке — обычный старт диалога
+export const STAFF_LINK_PREFIX = 'staff_';
+
+export type MaxLinkInfo = {
+	url: string;
+	expiresAt: string;
+};
+
+// done — кода больше нет: профиль привязан
+export type MaxLinkStatus = {
+	status: 'pending' | 'done' | 'expired';
+};
+
+export type StaffMaxLinkRequest = {
+	code: string;
+	userId: number;
+};
+
+export type StaffMaxLinkResult =
+	| { status: 'linked'; fullName: string; }
+	| { status: 'invalid' | 'taken'; };
 
 export type LoginRequest = {
 	login: string;
@@ -322,7 +347,7 @@ export type AcceptInviteRequest = {
 	password: string;
 };
 
-export type StaffMember = AdminUser & {
+export type StaffMember = Omit<AdminUser, 'maxLinkRequired'> & {
 	isActive: boolean;
 	hasPassword: boolean;
 	lastLoginAt: string | null;
@@ -356,4 +381,5 @@ export type AuditEntry = {
 
 export type ApiError = {
 	error: string;
+	code?: 'max_link_required';
 };

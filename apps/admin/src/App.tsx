@@ -1,6 +1,6 @@
 import { CustomerServiceOutlined, FileTextOutlined, LogoutOutlined, QuestionCircleOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Badge, Button, Layout, Menu, Tooltip } from 'antd';
+import { Alert, Badge, Button, Layout, Menu, Tooltip } from 'antd';
 import { useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router';
 
@@ -11,9 +11,10 @@ import { api } from './api';
 import { ContentPage } from './ContentPage';
 import { InvitePage } from './InvitePage';
 import { LoginPage } from './LoginPage';
+import { MaxLinkPage } from './MaxLink';
 import { PersonAvatar, staffInitials } from './page';
 import { QuestionsPage } from './QuestionsPage';
-import { errorText, isManager, QUESTIONS_KEY, ROLE_LABELS, signedOut, useMe } from './session';
+import { errorText, isManager, logOut, QUESTIONS_KEY, ROLE_LABELS, useMe } from './session';
 import { SettingsPage } from './SettingsPage';
 import { StaffPage } from './StaffPage';
 import { SupportPage, useSupportFeed } from './SupportPage';
@@ -33,11 +34,6 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 	const waiting = useSupportFeed(user);
 	const manager = isManager(user.role);
 	const questions = useQuery({ queryKey: QUESTIONS_KEY, queryFn: api.questions, enabled: manager });
-
-	const logout = async () => {
-		await api.logout();
-		signedOut();
-	};
 
 	const support = {
 		key: 'support',
@@ -83,12 +79,13 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 					)}
 					{!collapsed && (
 						<Tooltip title="Выйти">
-							<Button type="text" icon={<LogoutOutlined />} aria-label="Выйти" onClick={() => void logout()} />
+							<Button type="text" icon={<LogoutOutlined />} aria-label="Выйти" onClick={() => void logOut()} />
 						</Tooltip>
 					)}
 				</div>
 			</Layout.Sider>
 			<div className="app-main">
+				{!user.maxLinked && <Alert banner type="warning" title={<>Профиль MAX не привязан. <Link to="/account">Привязать</Link></>} />}
 				<Routes>
 					{manager && (
 						<>
@@ -118,7 +115,11 @@ const SignedInArea = () => {
 		return <div className="center error">API недоступен: {errorText(me.error)}</div>;
 	}
 
-	return me.data ? <Shell user={me.data} /> : <LoginPage />;
+	if (!me.data) {
+		return <LoginPage />;
+	}
+
+	return me.data.maxLinkRequired ? <MaxLinkPage user={me.data} /> : <Shell user={me.data} />;
 };
 
 export const App = () => (

@@ -5,9 +5,9 @@ import path from 'node:path';
 import { Bot } from '@maxhub/max-bot-api';
 import type { Context } from '@maxhub/max-bot-api';
 
-import { escapeHtml } from '@rw/core';
+import { escapeHtml, STAFF_LINK_PREFIX } from '@rw/core';
 
-import type { DialogEngine, DialogEventRecord, DialogInput, DialogResult, DialogUser, Reply, SupportAttachment, SupportInboundRequest, SupportInboundResult, SupportSendRequest, SupportSendResult, SupportStatus, UploadKind, UploadResult } from '@rw/core';
+import type { DialogEngine, DialogEventRecord, DialogInput, DialogResult, DialogUser, Reply, StaffMaxLinkRequest, StaffMaxLinkResult, SupportAttachment, SupportInboundRequest, SupportInboundResult, SupportSendRequest, SupportSendResult, SupportStatus, UploadKind, UploadResult } from '@rw/core';
 import { errorMessage, repoPath } from '@rw/runtime';
 
 import { logger } from '../logger';
@@ -36,6 +36,7 @@ export type MaxBotHooks = {
 	// Выложенный коммит: попадает в каждую запись статистики
 	revision?: string | null;
 	support?: SupportTransport;
+	linkStaff?: (request: StaffMaxLinkRequest) => Promise<StaffMaxLinkResult>;
 };
 
 export type SupportTransport = {
@@ -65,6 +66,11 @@ const SUPPORT_SIGNATURE = '<b>Служба поддержки</b>';
 type MaxAttachment = { type: string; filename: string; payload: { url: string; }; };
 // Эти обновления бот обрабатывает как диалог, остальные только записывает в статистику
 const DIALOG_UPDATES = new Set(['message_created', 'bot_started']);
+
+const STAFF_LINK_FAILURES = {
+	invalid: 'Ссылка устарела. Получите новую в админке.',
+	taken: 'Этот профиль MAX уже привязан к другому сотруднику.',
+};
 
 const toDialogUser = (user: MaxUser): DialogUser => ({
 	id: user.user_id,
@@ -426,7 +432,29 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 		await next();
 	});
 
-	bot.on('bot_started', ctx => dispatch(ctx.user, { type: 'start' }, ctx.update));
+	// Привязка сотрудника разбирается до диалога: иначе старт по ссылке закрыл бы его открытое обращение,
+	// а код попал бы в статистику
+	const linkStaff = async (user: MaxUser, code: string, link: NonNullable<MaxBotHooks['linkStaff']>) => {
+		let text = 'Не удалось привязать профиль. Попробуйте, пожалуйста, ещё раз.';
+
+		try {
+			const result = await link({ code, userId: user.user_id });
+
+			text = result.status === 'linked' ? `Профиль привязан: ${result.fullName}.` : STAFF_LINK_FAILURES[result.status];
+		} catch (error) {
+			logger.error('Staff MAX link failed', { userId: user.user_id, error: errorMessage(error) });
+		}
+
+		await bot.api.sendMessageToUser(user.user_id, text);
+	};
+
+	bot.on('bot_started', ctx => {
+		const code = ctx.startPayload?.startsWith(STAFF_LINK_PREFIX) ? ctx.startPayload.slice(STAFF_LINK_PREFIX.length) : null;
+
+		return code && hooks.linkStaff
+			? linkStaff(ctx.user, code, hooks.linkStaff)
+			: dispatch(ctx.user, { type: 'start' }, ctx.update);
+	});
 
 	bot.on('message_created', async ctx => {
 		const message = ctx.message;
