@@ -1,0 +1,22 @@
+# Дополнение к deploy/docker-compose.yml для дев-стенда: админка за Caddy и лимиты под сервер с 1 ядром.
+# Пути здесь считаются от deploy/, папки первого файла compose.
+# На сервере кроме стенда работают VPN и другие боты, поэтому памяти контейнерам задан потолок.
+
+services:
+  postgres:
+    mem_limit: 384m
+
+  api:
+    mem_limit: 400m
+
+  bot:
+    environment:
+      ONNX_THREADS: 1
+
+  web:
+    build:
+      context: ./dev
+      dockerfile: Dockerfile.web
+    environment:
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?}
+    mem_limit: 128m

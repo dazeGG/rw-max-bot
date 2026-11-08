@@ -18,7 +18,8 @@ COPY packages/db/package.json packages/db/
 COPY packages/runtime/package.json packages/runtime/
 
 FROM manifests AS server
-RUN pnpm install --frozen-lockfile --prod --filter "@rw/api..." --filter "@rw/bot..."
+# Склад pnpm после установки не нужен, а в образе занимает место
+RUN pnpm install --frozen-lockfile --prod --filter "@rw/api..." --filter "@rw/bot..." && rm -rf "$(pnpm store path)"
 COPY packages packages
 COPY apps/api apps/api
 COPY apps/bot apps/bot

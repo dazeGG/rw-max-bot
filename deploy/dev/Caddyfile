@@ -1,0 +1,43 @@
+# Дев-стенд повторяет схему заказчика: вебхук и админка на разных адресах.
+# Ограничение доступа к админке у заказчика делает его внешний контур. На стенде такого контура нет,
+# админку защищает только вход, поэтому на стенде только начальный контент и тестовые пользователи.
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
+
+{$DOMAIN} {
+	import security_headers
+
+	# Подлинность запроса бот проверяет сам по заголовку X-Max-Bot-Api-Secret
+	handle /webhook {
+		reverse_proxy bot:3000
+	}
+
+	handle {
+		respond 404
+	}
+}
+
+{$ADMIN_DOMAIN} {
+	import security_headers
+	encode zstd gzip
+
+	# В API проксируется только /api: /internal/* для бота доступен лишь внутри docker-сети
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	# Админка: SPA, неизвестные пути отдают index.html
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+}

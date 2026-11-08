@@ -1,0 +1,5 @@
+# Caddy дев-стенда. Контекст — deploy/dev; admin-dist кладет туда deploy.sh после сборки админки у разработчика,
+# потому что на сервере с 1 ядром и без запаса памяти сборка Vite мешала бы боту и VPN.
+FROM caddy:2.10-alpine AS web
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY admin-dist /srv/admin

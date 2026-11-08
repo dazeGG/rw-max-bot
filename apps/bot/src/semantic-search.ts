@@ -206,7 +206,8 @@ const modelSource = (model: string, revision: string): [string, { revision?: str
 		.every(file => fs.existsSync(path.join(folder, file)));
 	return complete ? [folder, {}] : [model, { revision, cache_dir: cacheDir() }];
 };
-const sessionOptions = { intraOpNumThreads: 2, interOpNumThreads: 1 };
+// Two threads suit the 2-vCPU production server; a smaller server sets ONNX_THREADS to its core count
+const sessionOptions = { intraOpNumThreads: Number(process.env.ONNX_THREADS) || 2, interOpNumThreads: 1 };
 
 export const createReranker = async (): Promise<Reranker> => {
 	const [source, options] = modelSource(RERANKER_MODEL, RERANKER_REVISION);
