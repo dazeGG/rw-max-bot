@@ -17,17 +17,11 @@ const required = (name: string): string => {
 	const value = process.env[name];
 
 	if (!value) {
-		throw new Error(`${name} is required (see .env.example)`);
+		throw new Error(`${name} is required (see deploy/.env.example)`);
 	}
 
 	return value;
 };
-
-const mode = process.env.BOT_MODE ?? 'polling';
-
-if (mode !== 'polling' && mode !== 'webhook') {
-	throw new Error('BOT_MODE must be "polling" or "webhook"');
-}
 
 const refreshSeconds = Number(process.env.CONTENT_REFRESH_SECONDS || 300);
 const controlPort = Number(process.env.BOT_CONTROL_PORT ?? 3002);
@@ -44,15 +38,12 @@ export const config = {
 	controlHost: process.env.BOT_CONTROL_HOST ?? '127.0.0.1',
 	controlPort,
 	botToken: required('BOT_TOKEN'),
-	mode,
-	webhook: mode === 'webhook'
-		? {
-			domain: required('WEBHOOK_DOMAIN'),
-			path: process.env.WEBHOOK_PATH ?? '/webhook',
-			secret: required('WEBHOOK_SECRET'),
-			port: Number(process.env.PORT ?? 3000),
-		}
-		: null,
+	webhook: {
+		domain: required('WEBHOOK_DOMAIN'),
+		path: process.env.WEBHOOK_PATH ?? '/webhook',
+		secret: required('WEBHOOK_SECRET'),
+		port: Number(process.env.PORT ?? 3000),
+	},
 	contentRefreshSeconds: refreshSeconds,
 	// Пока сотрудникам не открыта админка, отвечать пассажирам некому
 	supportChatEnabled: process.env.SUPPORT_CHAT_ENABLED === 'true',

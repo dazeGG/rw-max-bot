@@ -19,7 +19,7 @@ import { createMaxBot } from './transport/max';
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 if (!apiConfig.token) {
-	throw new Error('INTERNAL_API_TOKEN is required (see .env.example)');
+	throw new Error('INTERNAL_API_TOKEN is required (see deploy/.env.example)');
 }
 
 const api = new ApiClient(apiConfig.url, apiConfig.token);
@@ -85,10 +85,6 @@ const shutdown = async (exitCode = 0) => {
 	control.close();
 	control.closeIdleConnections();
 
-	if (config.mode === 'polling') {
-		bot.stopPolling();
-	}
-
 	const timeout = new Promise(resolve => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS).unref());
 	await Promise.race([drain(), timeout]);
 	await lease?.release();
@@ -119,22 +115,16 @@ if (!lease) {
 				resolve();
 			});
 		});
-		if (config.webhook) {
-			logger.info('Starting bot in webhook mode', { domain: config.webhook.domain, port: config.webhook.port });
-			await bot.start({
-				mode: 'webhook',
-				options: {
-					domain: config.webhook.domain,
-					path: config.webhook.path,
-					secret: config.webhook.secret,
-					port: config.webhook.port,
-				},
-			});
-		} else {
-			// Polling снимает все подписки на вебхук: с боевым токеном локально так запускать нельзя
-			logger.info('Starting bot in polling mode');
-			await bot.start({ mode: 'polling' });
-		}
+		logger.info('Starting bot in webhook mode', { domain: config.webhook.domain, port: config.webhook.port });
+		await bot.start({
+			mode: 'webhook',
+			options: {
+				domain: config.webhook.domain,
+				path: config.webhook.path,
+				secret: config.webhook.secret,
+				port: config.webhook.port,
+			},
+		});
 	} catch (error) {
 		// Например, MAX не принял адрес вебхука. Аренду отпускаем сразу, чтобы перезапуск не ждал ее истечения
 		logger.error('Bot start failed', { error: errorMessage(error) });

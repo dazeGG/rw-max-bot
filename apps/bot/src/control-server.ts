@@ -41,7 +41,7 @@ export type ControlHandlers = {
 	sendSupport: (message: SupportSendRequest) => Promise<SupportSendResult>;
 };
 
-// Отдельный внутренний порт: не зависит от webhook/polling MAX и не публикуется наружу.
+// Отдельный внутренний порт: не зависит от вебхука MAX и не публикуется наружу.
 export const createControlServer = (token: string, { reload, checkSearch, sendSupport }: ControlHandlers) => {
 	if (!token) {
 		throw new Error('Control server token is required');

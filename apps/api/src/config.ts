@@ -4,7 +4,7 @@ const required = (name: string): string => {
 	const value = process.env[name];
 
 	if (!value) {
-		throw new Error(`${name} is required (see .env.example)`);
+		throw new Error(`${name} is required (see deploy/.env.example)`);
 	}
 
 	return value;

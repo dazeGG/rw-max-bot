@@ -8,10 +8,6 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @rw/api --filter @rw/bot --filter @rw/admin dev",
-    "dev:api": "pnpm --filter @rw/api dev",
-    "dev:bot": "pnpm --filter @rw/bot dev",
-    "dev:admin": "pnpm --filter @rw/admin dev",
     "chat": "pnpm --filter @rw/bot chat",
     "eval:e5": "pnpm --filter @rw/bot eval:e5",
     "retrieval:report": "pnpm --filter @rw/bot retrieval:report",

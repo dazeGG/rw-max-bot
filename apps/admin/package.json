@@ -5,7 +5,6 @@
   "description": "Админка: контент и поведение бота, в будущем — чат оператора",
   "type": "module",
   "scripts": {
-    "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
