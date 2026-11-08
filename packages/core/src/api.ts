@@ -258,6 +258,11 @@ export type SupportSendRequest = {
 
 export type SupportSendResult = { ok: true; } | { ok: false; error: string; };
 
+// Уведомление сотруднику в MAX: новое по userId или обновление отправленного по mid
+export type StaffNotifyRequest = { text: string; url: string; } & ({ userId: number; } | { mid: string; });
+
+export type StaffNotifyResult = { ok: true; mid: string; } | { ok: false; error: string; };
+
 export type ContentApplied = {
 	version: string;
 };
@@ -302,6 +307,7 @@ export type AdminUser = {
 	fullName: string;
 	role: AdminRole;
 	maxLinked: boolean;
+	maxNotify: boolean;
 	// Без привязки админка закрыта. Правило считает API, интерфейс только показывает экран привязки
 	maxLinkRequired: boolean;
 };
@@ -317,6 +323,10 @@ export type MaxLinkInfo = {
 // done — кода больше нет: профиль привязан
 export type MaxLinkStatus = {
 	status: 'pending' | 'done' | 'expired';
+};
+
+export type UpdateMaxNotifyRequest = {
+	enabled: boolean;
 };
 
 export type StaffMaxLinkRequest = {
@@ -347,7 +357,7 @@ export type AcceptInviteRequest = {
 	password: string;
 };
 
-export type StaffMember = Omit<AdminUser, 'maxLinkRequired'> & {
+export type StaffMember = Omit<AdminUser, 'maxLinkRequired' | 'maxNotify'> & {
 	isActive: boolean;
 	hasPassword: boolean;
 	lastLoginAt: string | null;

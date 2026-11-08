@@ -7,7 +7,7 @@ import type { Context } from '@maxhub/max-bot-api';
 
 import { escapeHtml, STAFF_LINK_PREFIX } from '@rw/core';
 
-import type { DialogEngine, DialogEventRecord, DialogInput, DialogResult, DialogUser, Reply, StaffMaxLinkRequest, StaffMaxLinkResult, SupportAttachment, SupportInboundRequest, SupportInboundResult, SupportSendRequest, SupportSendResult, SupportStatus, UploadKind, UploadResult } from '@rw/core';
+import type { DialogEngine, DialogEventRecord, DialogInput, DialogResult, DialogUser, Reply, StaffMaxLinkRequest, StaffMaxLinkResult, StaffNotifyRequest, StaffNotifyResult, SupportAttachment, SupportInboundRequest, SupportInboundResult, SupportSendRequest, SupportSendResult, SupportStatus, UploadKind, UploadResult } from '@rw/core';
 import { errorMessage, repoPath } from '@rw/runtime';
 
 import { logger } from '../logger';
@@ -514,5 +514,22 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 		return lost ? { ok: false, error: 'Attachment was not delivered' } : { ok: true };
 	};
 
-	return { bot, drain, sendSupport };
+	const notifyStaff = async ({ text, url, ...target }: StaffNotifyRequest): Promise<StaffNotifyResult> => {
+		const attachments = [{ type: 'inline_keyboard' as const, payload: { buttons: [[{ type: 'link' as const, text: 'Открыть в админке', url }]] } }];
+
+		try {
+			if ('mid' in target) {
+				await bot.api.editMessage(target.mid, { text, attachments });
+				return { ok: true, mid: target.mid };
+			}
+
+			const message = await bot.api.sendMessageToUser(target.userId, text, { attachments });
+
+			return { ok: true, mid: message.body.mid };
+		} catch (error) {
+			return { ok: false, error: errorMessage(error) };
+		}
+	};
+
+	return { bot, drain, sendSupport, notifyStaff };
 };

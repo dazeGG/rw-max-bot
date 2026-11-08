@@ -9,6 +9,7 @@ services:
   api:
     environment:
       BOT_USERNAME: ${BOT_USERNAME:?}
+      ADMIN_URL: https://${ADMIN_DOMAIN:?}
     mem_limit: 400m
 
   bot:

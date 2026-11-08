@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 
-import type { SearchCheckResult, SupportSendRequest, SupportSendResult } from '@rw/core';
+import type { SearchCheckResult, StaffNotifyRequest, StaffNotifyResult, SupportSendRequest, SupportSendResult } from '@rw/core';
 
 const CHECK_TEXT_LIMIT = 1000;
 const BODY_LIMIT = 16 * 1024;
@@ -39,10 +39,14 @@ export type ControlHandlers = {
 	reload: () => Promise<string | null>;
 	checkSearch: (text: string) => Promise<SearchCheckResult>;
 	sendSupport: (message: SupportSendRequest) => Promise<SupportSendResult>;
+	notifyStaff: (request: StaffNotifyRequest) => Promise<StaffNotifyResult>;
 };
 
+const isStaffNotify = (value: Partial<StaffNotifyRequest> & { userId?: unknown; mid?: unknown; } | null): value is StaffNotifyRequest =>
+	typeof value?.text === 'string' && typeof value.url === 'string' && (Number.isInteger(value.userId) || typeof value.mid === 'string');
+
 // Отдельный внутренний порт: не зависит от вебхука MAX и не публикуется наружу.
-export const createControlServer = (token: string, { reload, checkSearch, sendSupport }: ControlHandlers) => {
+export const createControlServer = (token: string, { reload, checkSearch, sendSupport, notifyStaff }: ControlHandlers) => {
 	if (!token) {
 		throw new Error('Control server token is required');
 	}
@@ -58,13 +62,26 @@ export const createControlServer = (token: string, { reload, checkSearch, sendSu
 			send(401, { error: 'Unauthorized' });
 			return;
 		}
-		if (request.url !== '/internal/content/refresh' && request.url !== '/internal/search/check' && request.url !== '/internal/support/send') {
+		if (request.url !== '/internal/content/refresh' && request.url !== '/internal/search/check' && request.url !== '/internal/support/send' && request.url !== '/internal/staff/notify') {
 			send(404, { error: 'Not found' });
 			return;
 		}
 		if (request.method !== 'POST') {
 			response.setHeader('allow', 'POST');
 			send(405, { error: 'Method not allowed' });
+			return;
+		}
+		if (request.url === '/internal/staff/notify') {
+			void readBody(request).then(async body => {
+				const notification = parse<StaffNotifyRequest>(body);
+
+				if (!isStaffNotify(notification)) {
+					send(400, { error: 'Bad request' });
+					return;
+				}
+
+				send(200, await notifyStaff(notification));
+			}).catch(() => send(503, { error: 'Notify failed' }));
 			return;
 		}
 		if (request.url === '/internal/support/send') {

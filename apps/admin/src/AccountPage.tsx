@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Modal } from 'antd';
+import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Modal, Switch } from 'antd';
 import { useCallback, useState } from 'react';
 
 import type { AdminUser } from '@rw/core';
@@ -26,6 +26,8 @@ export const AccountPage = ({ user }: { user: AdminUser; }) => {
 
 	const logoutAll = useMutation({ mutationFn: api.logoutAll, onSuccess: signedOut });
 
+	const setNotify = useMutation({ mutationFn: api.setMaxNotify, onSuccess: () => refreshMe() });
+
 	const [linking, setLinking] = useState(false);
 
 	const linked = useCallback(() => {
@@ -48,6 +50,16 @@ export const AccountPage = ({ user }: { user: AdminUser; }) => {
 				<Card title="Профиль MAX">
 					<p>{user.maxLinked ? 'Привязан' : 'Не привязан'}</p>
 					<Button onClick={() => setLinking(true)}>{user.maxLinked ? 'Перепривязать' : 'Привязать'}</Button>
+					<label className="max-notify">
+						<Switch
+							checked={user.maxNotify}
+							disabled={!user.maxLinked}
+							loading={setNotify.isPending}
+							onChange={enabled => setNotify.mutate(enabled)}
+						/>
+						Уведомления о заявках в MAX
+					</label>
+					{setNotify.isError && <Alert className="form-alert" type="error" title={errorText(setNotify.error)} />}
 					{linking && (
 						<Modal open title="Привязка профиля MAX" footer={null} onCancel={() => setLinking(false)}>
 							<MaxLinkPanel onDone={linked} />

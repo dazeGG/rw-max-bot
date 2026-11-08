@@ -3,10 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '../content/types';
 import type { Settings } from '../content/types';
 
-import { isSupportCancel, supportDaysError, supportHoursError, supportOpenedText, supportSchedule, supportTimeError } from './support';
+import { isSupportCancel, supportDay, supportDaysError, supportHoursError, supportOpenedText, supportSchedule, supportTimeError } from './support';
 
 // Время в Якутске: 2026-11-02 — понедельник
 const yakutsk = (day: number, hour: number, minute = 0) => new Date(Date.UTC(2026, 10, day, hour - 9, minute));
+
+describe('supportDay', () => {
+	it('считает день по якутскому времени, а не по UTC', () => {
+		expect(supportDay(yakutsk(3, 5))).toBe('2026-11-03');
+	});
+});
 
 const settings = (over: Partial<Settings> = {}): Settings => ({
 	...DEFAULT_SETTINGS,

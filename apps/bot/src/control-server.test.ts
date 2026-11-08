@@ -2,7 +2,7 @@ import type { AddressInfo } from 'node:net';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { SearchCheckResult, SupportSendResult } from '@rw/core';
+import type { SearchCheckResult, StaffNotifyResult, SupportSendResult } from '@rw/core';
 
 import { createControlServer } from './control-server';
 
@@ -15,13 +15,31 @@ describe('internal content refresh server', () => {
 		})));
 	});
 	const setup = async (reload = vi.fn(async () => 'version-2'), check = vi.fn(async (): Promise<SearchCheckResult> => ({ kind: 'none' })), send = vi.fn(async (): Promise<SupportSendResult> => ({ ok: true }))) => {
-		const server = createControlServer('test-secret', { reload, checkSearch: check, sendSupport: send });
+		const notify = vi.fn(async (): Promise<StaffNotifyResult> => ({ ok: true, mid: 'mid-1' }));
+		const server = createControlServer('test-secret', { reload, checkSearch: check, sendSupport: send, notifyStaff: notify });
 		servers.push(server);
 		await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
 		const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/internal/content/refresh`;
-		return { url, reload, check, send, checkUrl: url.replace('content/refresh', 'search/check'), sendUrl: url.replace('content/refresh', 'support/send') };
+		return { url, reload, check, send, notify, checkUrl: url.replace('content/refresh', 'search/check'), sendUrl: url.replace('content/refresh', 'support/send'), notifyUrl: url.replace('content/refresh', 'staff/notify') };
 	};
 	const post = (url: string, body: string, authorization = 'Bearer test-secret') => fetch(url, { method: 'POST', headers: { authorization }, body });
+
+	it('passes a staff notification to the bot', async () => {
+		const { notifyUrl, notify } = await setup();
+		for (const request of [{ userId: 7, text: 'Заявка', url: 'https://admin/support/1' }, { mid: 'mid-1', text: 'Заявка', url: 'https://admin/support/1' }]) {
+			const response = await post(notifyUrl, JSON.stringify(request));
+			expect(await response.json()).toEqual({ ok: true, mid: 'mid-1' });
+			expect(notify).toHaveBeenLastCalledWith(request);
+		}
+	});
+	it('rejects a staff notification without auth, recipient or link', async () => {
+		const { notifyUrl, notify } = await setup();
+		expect((await post(notifyUrl, JSON.stringify({ userId: 7, text: 'x', url: 'y' }), 'Bearer wrong')).status).toBe(401);
+		for (const body of ['', 'не json', JSON.stringify({ text: 'x', url: 'y' }), JSON.stringify({ userId: 7, url: 'y' }), JSON.stringify({ userId: 7, text: 'x' })]) {
+			expect((await post(notifyUrl, body)).status, body).toBe(400);
+		}
+		expect(notify).not.toHaveBeenCalled();
+	});
 
 	it('sends a support message and reports the result', async () => {
 		const message = { userId: 7, text: 'Ответ', attachments: [] };

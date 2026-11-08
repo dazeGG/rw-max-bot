@@ -3,7 +3,7 @@
 import { and, eq, gt, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 
-import type { AcceptInviteRequest, ChangePasswordRequest, LoginRequest } from '@rw/core';
+import type { AcceptInviteRequest, ChangePasswordRequest, LoginRequest, UpdateMaxNotifyRequest } from '@rw/core';
 import { adminInvites, adminSessions, admins, db } from '@rw/db';
 
 import { requireAdmin, requireSession } from '../auth/guards';
@@ -48,6 +48,12 @@ const tokenParams = {
 	type: 'object',
 	required: ['token'],
 	properties: { token: { type: 'string', minLength: 1, maxLength: 100 } },
+} as const;
+
+const maxNotifyBody = {
+	type: 'object',
+	required: ['enabled'],
+	properties: { enabled: { type: 'boolean' } },
 } as const;
 
 const INVALID_INVITE = 'Ссылка недействительна или устарела. Попросите выдать новую';
@@ -99,6 +105,11 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 
 	app.get('/auth/max-link', { preHandler: requireSession }, request => maxLinkStatus(request.admin!.id));
 
+	app.put<{ Body: UpdateMaxNotifyRequest; }>('/auth/max-notify', { preHandler: requireAdmin, schema: { body: maxNotifyBody } }, async (request, reply) => {
+		await db.update(admins).set({ maxNotify: request.body.enabled }).where(eq(admins.id, request.admin!.id));
+		return reply.code(204).send();
+	});
+
 	app.post<{ Body: ChangePasswordRequest; }>('/auth/password', { preHandler: requireAdmin, schema: { body: changePasswordBody } }, async (request, reply) => {
 		const adminId = request.admin!.id;
 		const [admin] = await db.select().from(admins).where(eq(admins.id, adminId));
@@ -135,7 +146,7 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 			const [row] = await tx.update(admins)
 				.set({ passwordHash })
 				.where(and(eq(admins.id, invite.adminId), eq(admins.isActive, true)))
-				.returning({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role, maxUserId: admins.maxUserId });
+				.returning({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role, maxUserId: admins.maxUserId, maxNotify: admins.maxNotify });
 
 			return row ?? null;
 		});

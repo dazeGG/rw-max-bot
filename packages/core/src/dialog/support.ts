@@ -69,6 +69,9 @@ export const supportSchedule = (settings: Settings, now: Date): { isOpen: boolea
 	return { isOpen: true, next: '' };
 };
 
+// Календарный день по якутскому времени
+export const supportDay = (now: Date) => new Date(now.getTime() + YAKUTSK_OFFSET_MS).toISOString().slice(0, 10);
+
 // Что пассажир видит сразу после «Написать оператору»
 export const supportOpenedText = (settings: Settings, now: Date) => {
 	const { isOpen, next } = supportSchedule(settings, now);

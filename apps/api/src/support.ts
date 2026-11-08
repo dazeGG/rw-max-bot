@@ -16,7 +16,9 @@ import { loadSettings } from './content';
 import { sendToPassenger } from './content-notifier';
 import { RuleError } from './errors';
 import { logger } from './logger';
-import { publish } from './support-hub';
+import { orderedQueue } from './ordered-queue';
+import { publish as publishToStaff } from './support-hub';
+import { notifyNewTicket, notifyPassengerReply, refreshTicketNotifications } from './support-notifications';
 import { mediaFile } from './uploads';
 
 export const SUPPORT_FOLDER = 'uploads/support';
@@ -30,6 +32,15 @@ const LIST_LIMIT = 100;
 const REASON_WINDOW_MS = 60 * 60 * 1000;
 
 const isManager = (actor: AdminUser) => actor.role !== 'support';
+
+// Статус заявки в уже отправленных уведомлениях MAX меняется вместе с экраном админки
+const publish = (event: Parameters<typeof publishToStaff>[0]) => {
+	publishToStaff(event);
+
+	if (event.kind !== 'message') {
+		refreshTicketNotifications(event.ticketId);
+	}
+};
 
 const passengerName = (row: { firstName: string | null; lastName: string | null; userId: number; }) =>
 	[row.firstName, row.lastName].filter(Boolean).join(' ') || `Пассажир ${row.userId}`;
@@ -66,7 +77,8 @@ export const openTicket = async (user: DialogUser, now = new Date()): Promise<st
 		.returning();
 
 	if (created) {
-		publish({ ticketId: created.id, kind: 'queued', assigneeId: null });
+		publishToStaff({ ticketId: created.id, kind: 'queued', assigneeId: null });
+		notifyNewTicket(created, now);
 	}
 
 	return supportOpenedText(await loadSettings(db), now);
@@ -127,6 +139,10 @@ export const receiveMessage = async ({ userId, text, mid, attachments, start }: 
 
 	if (outcome.action === 'stored' && outcome.ticket) {
 		publish({ ticketId: outcome.ticket.id, kind: 'message', assigneeId: outcome.ticket.assigneeId });
+
+		if (outcome.ticket.status === 'active') {
+			notifyPassengerReply(outcome.ticket.id);
+		}
 	}
 
 	return { action: outcome.action };
@@ -389,7 +405,7 @@ export const releaseTicket = async (id: number, actor: AdminUser) => {
 		}
 
 		assertCanManage(ticket, actor);
-		await tx.update(supportTickets).set({ status: 'queue', assigneeId: null, takenAt: null }).where(eq(supportTickets.id, id));
+		await tx.update(supportTickets).set({ status: 'queue', assigneeId: null, takenAt: null, assigneeNotifiedAt: null }).where(eq(supportTickets.id, id));
 		await addSystemMessage(tx, id, `${actor.fullName} вернул(а) обращение в очередь`);
 	});
 
@@ -425,7 +441,7 @@ export const transferTicket = async (id: number, targetId: number, actor: AdminU
 			throw new RuleError(400, 'Такого сотрудника нет или он отключен');
 		}
 
-		await tx.update(supportTickets).set({ assigneeId: targetId }).where(eq(supportTickets.id, id));
+		await tx.update(supportTickets).set({ assigneeId: targetId, assigneeNotifiedAt: null }).where(eq(supportTickets.id, id));
 		await addSystemMessage(tx, id, `${actor.fullName} передал(а) обращение: ${target.fullName}`);
 	});
 
@@ -435,7 +451,7 @@ export const transferTicket = async (id: number, targetId: number, actor: AdminU
 // Сотрудника отключили: его обращения сразу возвращаются в очередь. Вызывается внутри транзакции отключения
 export const releaseTicketsOf = async (tx: Pick<typeof db, 'update' | 'insert'>, adminId: number) => {
 	const released = await tx.update(supportTickets)
-		.set({ status: 'queue', assigneeId: null, takenAt: null })
+		.set({ status: 'queue', assigneeId: null, takenAt: null, assigneeNotifiedAt: null })
 		.where(and(eq(supportTickets.status, 'active'), eq(supportTickets.assigneeId, adminId)))
 		.returning({ id: supportTickets.id });
 
@@ -452,22 +468,8 @@ export const publishQueued = (ids: number[]) => {
 	}
 };
 
-// Сообщения одного обращения уходят по порядку. Сбой одной отправки не отменяет следующие
-const deliveries = new Map<number, Promise<unknown>>();
-
-const inOrder = (ticketId: number, work: () => Promise<void>) => {
-	const next = (deliveries.get(ticketId) ?? Promise.resolve()).then(work, work);
-	const forget = () => {
-		if (deliveries.get(ticketId) === next) {
-			deliveries.delete(ticketId);
-		}
-	};
-
-	deliveries.set(ticketId, next);
-	next.then(forget, forget);
-
-	return next;
-};
+// Сообщения одного обращения уходят по порядку
+const inOrder = orderedQueue();
 
 const deliver = (ticketId: number, messageId: number, userId: number, text: string, attachments: SupportAttachment[]) => inOrder(ticketId, async () => {
 	let delivery: 'sent' | 'failed' = 'failed';
@@ -508,7 +510,7 @@ export const replyToTicket = async (id: number, text: string, attachments: Suppo
 			.values({ ticketId: id, sender: 'staff', adminId: actor.id, text, attachments, delivery: 'pending' })
 			.returning({ id: supportMessages.id });
 
-		await tx.update(supportTickets).set({ lastSender: 'staff', lastMessageAt: new Date() }).where(eq(supportTickets.id, id));
+		await tx.update(supportTickets).set({ lastSender: 'staff', lastMessageAt: new Date(), assigneeNotifiedAt: null }).where(eq(supportTickets.id, id));
 
 		return { message: inserted, userId: ticket.userId };
 	});

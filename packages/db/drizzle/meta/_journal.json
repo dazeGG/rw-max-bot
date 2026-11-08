@@ -71,6 +71,13 @@
       "when": 1794141287486,
       "tag": "0009_staff_max_link",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794143488316,
+      "tag": "0010_support_max_notifications",
+      "breakpoints": true
     }
   ]
 }

@@ -84,6 +84,7 @@ export const api = {
 	changePassword: (body: ChangePasswordRequest) => request<void>('/auth/password', { method: 'POST', body }),
 	createMaxLink: () => request<MaxLinkInfo>('/auth/max-link', { method: 'POST' }),
 	maxLinkStatus: () => request<MaxLinkStatus>('/auth/max-link'),
+	setMaxNotify: (enabled: boolean) => request<void>('/auth/max-notify', { method: 'PUT', body: { enabled } }),
 	invite: (token: string) => request<InviteInfo>(`/invites/${encodeURIComponent(token)}`),
 	acceptInvite: (token: string, body: AcceptInviteRequest) => request<AdminUser>(`/invites/${encodeURIComponent(token)}`, { method: 'POST', body }),
 	content: () => request<ContentResponse>('/content'),

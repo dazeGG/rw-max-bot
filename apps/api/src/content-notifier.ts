@@ -1,4 +1,4 @@
-import type { SearchCheckResult, SupportSendRequest, SupportSendResult } from '@rw/core';
+import type { SearchCheckResult, StaffNotifyRequest, StaffNotifyResult, SupportSendRequest, SupportSendResult } from '@rw/core';
 
 export type ContentRefreshResult = { ok: true; version: string; };
 
@@ -39,6 +39,21 @@ export const checkBotSearch = async (botControlUrl: string, token: string, text:
 	}
 
 	return await response.json() as SearchCheckResult;
+};
+
+export const notifyStaffInMax = async (botControlUrl: string, token: string, request: StaffNotifyRequest): Promise<StaffNotifyResult> => {
+	const response = await fetch(`${botControlUrl.replace(/\/+$/, '')}/internal/staff/notify`, {
+		method: 'POST',
+		headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+		body: JSON.stringify(request),
+		signal: AbortSignal.timeout(15_000),
+	});
+
+	if (!response.ok) {
+		throw new Error(`Bot staff notify responded ${response.status}`);
+	}
+
+	return await response.json() as StaffNotifyResult;
 };
 
 // Отправка занимает время: бот сам загружает вложения в MAX

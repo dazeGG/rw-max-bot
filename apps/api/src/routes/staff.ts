@@ -123,7 +123,7 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 
 		return db.transaction(async tx => {
 			const [created] = await tx.insert(admins)
-				.values({ login, fullName: request.body.fullName.trim(), role: newRole })
+				.values({ login, fullName: request.body.fullName.trim(), role: newRole, maxNotify: newRole === 'support' })
 				.onConflictDoNothing({ target: admins.login })
 				.returning();
 
@@ -158,7 +158,9 @@ export const staffRoutes: FastifyPluginAsync = async app => {
 				await assertNotLastSuperadmin(tx, target);
 			}
 
-			await tx.update(admins).set({ role: newRole, fullName: newName }).where(eq(admins.id, target.id));
+			await tx.update(admins)
+				.set({ role: newRole, fullName: newName, ...newRole !== target.role && { maxNotify: newRole === 'support' } })
+				.where(eq(admins.id, target.id));
 			await audit(tx, actor, 'staff.update', target, {
 				...newRole !== target.role && { fromRole: target.role, toRole: newRole },
 				...newName !== target.fullName && { fromName: target.fullName, toName: newName },

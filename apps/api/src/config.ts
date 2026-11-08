@@ -28,4 +28,6 @@ export const config = {
 	secureCookies: process.env.ADMIN_COOKIE_SECURE === 'true',
 	// Никнейм бота для ссылки привязки MAX; без него привязка не выдается
 	botUsername: process.env.BOT_USERNAME || null,
+	// Адрес админки для ссылок в уведомлениях MAX; без него уведомления не отправляются
+	adminUrl: process.env.ADMIN_URL?.replace(/\/+$/, '') || null,
 } as const;

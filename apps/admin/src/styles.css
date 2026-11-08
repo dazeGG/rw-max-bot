@@ -1413,3 +1413,10 @@ code {
 	gap: 16px;
 	text-align: center;
 }
+
+.max-notify {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 16px;
+}

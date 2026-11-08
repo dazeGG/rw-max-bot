@@ -49,7 +49,7 @@ const engine = new DialogEngine(() => content.get(), new ApiSessionStore(api), s
 	},
 }, semanticPolicy);
 
-const { bot, drain, sendSupport } = createMaxBot(config.botToken, engine, {
+const { bot, drain, sendSupport, notifyStaff } = createMaxBot(config.botToken, engine, {
 	...config.supportChatEnabled ? { support: api } : {},
 	getContentVersion: () => content.currentVersion(),
 	onUser: user => api.touchSubscriber(user),
@@ -77,6 +77,7 @@ const control = createControlServer(apiConfig.token, {
 		throw error;
 	}),
 	sendSupport: config.supportChatEnabled ? sendSupport : async () => ({ ok: false, error: 'Support chat is disabled' }),
+	notifyStaff,
 });
 
 // Подписку на вебхук при остановке не снимаем: MAX придержит события на время перезапуска

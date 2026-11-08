@@ -43,7 +43,7 @@ export const maxLinkStatus = async (adminId: number): Promise<MaxLinkStatus> => 
 export const consumeMaxLink = ({ code, userId }: StaffMaxLinkRequest): Promise<StaffMaxLinkResult> => db.transaction(async tx => {
 	// Блокировка строки: второй запрос с тем же кодом дождется конца транзакции и уже ничего не найдет
 	const [admin] = await tx
-		.select({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role, maxUserId: admins.maxUserId })
+		.select({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role, maxUserId: admins.maxUserId, maxNotify: admins.maxNotify })
 		.from(adminMaxLinks)
 		.innerJoin(admins, eq(admins.id, adminMaxLinks.adminId))
 		.where(and(eq(adminMaxLinks.tokenHash, hashToken(code)), gt(adminMaxLinks.expiresAt, sql`now()`), eq(admins.isActive, true)))

@@ -4,17 +4,18 @@ import type { DialogEngine, DialogResult, SupportInboundResult, SupportStatus, U
 
 import { createMaxBot } from './max';
 
-const { handlers, botCreated, sendMessageToUser, useMock, catchMock } = vi.hoisted(() => ({
+const { handlers, botCreated, sendMessageToUser, editMessage, useMock, catchMock } = vi.hoisted(() => ({
 	handlers: new Map<string, (context: unknown) => Promise<void>>(),
 	botCreated: vi.fn(),
-	sendMessageToUser: vi.fn(async () => undefined),
+	sendMessageToUser: vi.fn(async () => ({ body: { mid: 'sent-mid' } })),
+	editMessage: vi.fn(async () => ({ success: true })),
 	useMock: vi.fn(),
 	catchMock: vi.fn(),
 }));
 
 vi.mock('@maxhub/max-bot-api', () => ({
 	Bot: class {
-		api = { sendMessageToUser };
+		api = { sendMessageToUser, editMessage };
 		constructor (token: string) {
 			botCreated(token);
 		}
@@ -48,6 +49,28 @@ const dispatchMessage = (context: unknown) => handlers.get('message_created')!(c
 beforeEach(() => {
 	vi.clearAllMocks();
 	handlers.clear();
+});
+
+describe('MAX staff notifications', () => {
+	const notifier = () => createMaxBot('test-token', { process: vi.fn() } as unknown as DialogEngine).notifyStaff;
+	const button = expect.objectContaining({ attachments: [{ type: 'inline_keyboard', payload: { buttons: [[{ type: 'link', text: 'Открыть в админке', url: 'https://admin/support/1' }]] } }] });
+
+	it('sends a new notification with a link and returns its id', async () => {
+		await expect(notifier()({ userId: 7, text: 'Заявка', url: 'https://admin/support/1' })).resolves.toEqual({ ok: true, mid: 'sent-mid' });
+		expect(sendMessageToUser).toHaveBeenCalledWith(7, 'Заявка', button);
+	});
+
+	it('updates a sent notification and keeps the link', async () => {
+		await expect(notifier()({ mid: 'old-mid', text: 'В работе', url: 'https://admin/support/1' })).resolves.toEqual({ ok: true, mid: 'old-mid' });
+		expect(editMessage).toHaveBeenCalledWith('old-mid', expect.objectContaining({ text: 'В работе' }));
+		expect(editMessage).toHaveBeenCalledWith('old-mid', button);
+		expect(sendMessageToUser).not.toHaveBeenCalled();
+	});
+
+	it('reports a failure instead of throwing', async () => {
+		sendMessageToUser.mockRejectedValueOnce(new Error('blocked'));
+		await expect(notifier()({ userId: 7, text: 'Заявка', url: 'https://admin/support/1' })).resolves.toEqual({ ok: false, error: 'blocked' });
+	});
 });
 
 describe('MAX staff link', () => {

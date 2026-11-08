@@ -53,7 +53,7 @@ if (password.length < MIN_PASSWORD_LENGTH) {
 const passwordHash = await hashPassword(password);
 
 const [saved] = await db.insert(admins)
-	.values({ login, fullName: login, passwordHash, role: roleArg ?? 'superadmin' })
+	.values({ login, fullName: login, passwordHash, role: roleArg ?? 'superadmin', maxNotify: roleArg === 'support' })
 	.onConflictDoUpdate({ target: admins.login, set: { passwordHash, isActive: true, ...roleArg && { role: roleArg } } })
 	.returning();
 

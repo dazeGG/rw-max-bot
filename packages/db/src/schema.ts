@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, index, integer, jsonb, pgTable, serial, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, date, index, integer, jsonb, pgTable, primaryKey, serial, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 import type { SupportAttachment } from '@rw/core';
@@ -69,6 +69,8 @@ export const admins = pgTable('admins', {
 	lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
 	// Профиль MAX сотрудника: один профиль нельзя привязать к двум сотрудникам
 	maxUserId: bigint('max_user_id', { mode: 'number' }).unique(),
+	// Писать ли сотруднику о заявках в MAX: при создании включено только у поддержки, дальше решает он сам
+	maxNotify: boolean('max_notify').notNull().default(false),
 }, table => [
 	check('admins_role_check', sql`${table.role} in ('superadmin', 'admin', 'support')`),
 ]);
@@ -159,12 +161,29 @@ export const supportTickets = pgTable('support_tickets', {
 	openReason: varchar('open_reason', { length: 20 }),
 	// Сколько раз бот не понял пассажира незадолго до обращения
 	botMisses: integer('bot_misses').notNull().default(0),
+	// Ответственному уже написали в MAX, что пассажир ответил; сбрасывается, когда отвечает сотрудник или меняется ответственный
+	assigneeNotifiedAt: timestamp('assignee_notified_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, table => [
 	uniqueIndex('support_tickets_open_idx').on(table.userId).where(sql`status <> 'closed'`),
 	index('support_tickets_status_idx').on(table.status, table.lastMessageAt),
 	index('support_tickets_user_idx').on(table.userId),
 ]);
+
+// Уведомления о новой заявке в MAX сотрудников: по ним обновляется статус. Текст хранится, чтобы не менять сообщение без нужды
+export const supportNotifications = pgTable('support_notifications', {
+	ticketId: integer('ticket_id').notNull().references(() => supportTickets.id, { onDelete: 'cascade' }),
+	adminId: integer('admin_id').notNull().references(() => admins.id, { onDelete: 'cascade' }),
+	mid: text('mid').notNull(),
+	text: text('text').notNull(),
+}, table => [
+	primaryKey({ columns: [table.ticketId, table.adminId] }),
+]);
+
+// Дни, за которые сводка к началу смены уже отправлена: перезапуск API не повторит ее
+export const supportDigests = pgTable('support_digests', {
+	day: date('day').primaryKey(),
+});
 
 export const supportMessages = pgTable('support_messages', {
 	id: serial('id').primaryKey(),

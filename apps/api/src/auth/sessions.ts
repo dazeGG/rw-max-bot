@@ -27,14 +27,14 @@ export const createSession = async (adminId: number): Promise<string> => {
 	return token;
 };
 
-export const toAdminUser = ({ id, login, fullName, role, maxUserId }: Pick<AdminUser, 'id' | 'login' | 'fullName' | 'role'> & { maxUserId: number | null; }): AdminUser => {
+export const toAdminUser = ({ id, login, fullName, role, maxUserId, maxNotify }: Pick<AdminUser, 'id' | 'login' | 'fullName' | 'role' | 'maxNotify'> & { maxUserId: number | null; }): AdminUser => {
 	const maxLinked = maxUserId !== null;
-	return { id, login, fullName, role, maxLinked, maxLinkRequired: requiresMaxLink(role, maxLinked) };
+	return { id, login, fullName, role, maxLinked, maxNotify, maxLinkRequired: requiresMaxLink(role, maxLinked) };
 };
 
 export const findSessionAdmin = async (token: string): Promise<AdminUser | null> => {
 	const [row] = await db
-		.select({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role, maxUserId: admins.maxUserId })
+		.select({ id: admins.id, login: admins.login, fullName: admins.fullName, role: admins.role, maxUserId: admins.maxUserId, maxNotify: admins.maxNotify })
 		.from(adminSessions)
 		.innerJoin(admins, eq(admins.id, adminSessions.adminId))
 		.where(and(eq(adminSessions.tokenHash, hashToken(token)), gt(adminSessions.expiresAt, sql`now()`), eq(admins.isActive, true)));
