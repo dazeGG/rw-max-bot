@@ -1420,3 +1420,78 @@ code {
 	gap: 8px;
 	margin-top: 16px;
 }
+
+/* Редактор таблиц в форме раздела */
+.table-editor {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.table-editor > .ant-card {
+	align-self: stretch;
+}
+
+.table-meta {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.table-grid-wrap {
+	overflow-x: auto;
+	margin-bottom: 8px;
+}
+
+.table-grid {
+	border-collapse: separate;
+	border-spacing: 4px;
+}
+
+.table-grid td,
+.table-grid th {
+	padding: 0;
+	text-align: center;
+}
+
+.table-grid td .ant-input {
+	min-width: 120px;
+}
+
+.table-grid-head .ant-input {
+	font-weight: 600;
+	background: var(--ant-color-primary-bg, #e6f4ff);
+}
+
+.table-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.table-note {
+	margin-bottom: 12px;
+}
+
+.table-preview-title {
+	font-weight: 600;
+}
+
+.table-preview {
+	align-self: stretch;
+	max-height: 560px;
+	overflow: auto;
+	border: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+	border-radius: 6px;
+}
+
+.table-preview-stack {
+	display: flex;
+	flex-direction: column;
+	width: max-content;
+}

@@ -117,7 +117,7 @@ export const api = {
 	reviewQuestion: (body: QuestionReviewRequest) => request<void>('/questions/reviews', { method: 'POST', body }),
 	undoQuestionReview: (key: string) => request<void>(`/questions/reviews/${key}`, { method: 'DELETE' }),
 	checkSearch: (text: string) => request<SearchCheckResult>('/questions/check', { method: 'POST', body: { text } }),
-	upload: async (kind: UploadKind, file: File) => parse<UploadResult>(await fetch(`/api/content/uploads?kind=${kind}&name=${encodeURIComponent(file.name)}`, {
+	upload: async (kind: UploadKind | 'table', file: File) => parse<UploadResult>(await fetch(`/api/content/uploads?kind=${kind}&name=${encodeURIComponent(file.name)}`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/octet-stream' },
 		body: file,

@@ -19,13 +19,13 @@ const MAX_IMAGE_SIDE = 7680;
 const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.gif';
 const FILE_ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.rtf,.txt,.csv,.zip,.jpg,.jpeg,.png';
 
-const assertSize = (kind: UploadKind, file: File) => {
+export const assertSize = (kind: UploadKind, file: File) => {
 	if (file.size > SIZE_LIMIT[kind]) {
 		throw new Error(`Файл больше ${SIZE_LIMIT[kind] / MEGABYTE} МБ`);
 	}
 };
 
-const assertImage = async (file: File) => {
+export const assertImage = async (file: File) => {
 	const url = URL.createObjectURL(file);
 
 	try {
@@ -34,6 +34,10 @@ const assertImage = async (file: File) => {
 		await image.decode().catch(() => {
 			throw new Error('Файл не открывается как картинка');
 		});
+
+		if (image.naturalWidth === 0 || image.naturalHeight === 0) {
+			throw new Error('У картинки нулевой размер');
+		}
 
 		if (image.naturalWidth > MAX_IMAGE_SIDE || image.naturalHeight > MAX_IMAGE_SIDE) {
 			throw new Error(`Картинка больше ${MAX_IMAGE_SIDE} точек по стороне: MAX ее не примет`);

@@ -2,6 +2,9 @@ import { toJpeg } from 'html-to-image';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 
+import { api } from './api';
+import { assertImage, assertSize } from './attachments';
+
 import './table-sheet.css';
 
 export type SheetTable = {
@@ -69,4 +72,22 @@ export const renderTablesToJpeg = async (tables: SheetTable[]): Promise<Blob> =>
 		root.unmount();
 		host.remove();
 	}
+};
+
+/** Рисует таблицы, проверяет картинку и загружает её на сервер (kind=table). Возвращает путь для поля image. */
+export const uploadTablesImage = async (tables: SheetTable[]): Promise<string> => {
+	let blob: Blob;
+
+	try {
+		blob = await renderTablesToJpeg(tables);
+	} catch (error) {
+		throw new Error(`Не удалось нарисовать картинку: ${error instanceof Error ? error.message : 'ошибка браузера'}`);
+	}
+
+	// Те же проверки, что у загрузки обычной картинки: ненулевой размер, лимит файла и стороны для MAX
+	const file = new File([blob], 'table.jpg', { type: 'image/jpeg' });
+	assertSize('image', file);
+	await assertImage(file);
+
+	return (await api.upload('table', file)).path;
 };

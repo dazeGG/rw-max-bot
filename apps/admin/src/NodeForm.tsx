@@ -1,10 +1,10 @@
 import { DeleteOutlined, EllipsisOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { Alert, App, Badge, Breadcrumb, Button, Card, Divider, Dropdown, Form, Input, Modal, Progress, Select, Switch, Tag } from 'antd';
+import { Alert, App, Badge, Breadcrumb, Button, Card, Divider, Dropdown, Form, Input, Modal, Progress, Segmented, Select, Switch, Tag } from 'antd';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
-import type { AdminContentNode, AdminUser, Settings, UpdateNodeRequest } from '@rw/core';
+import type { AdminContentNode, AdminUser, ContentTable, Settings, UpdateNodeRequest } from '@rw/core';
 
 import { api, ConflictError, mediaUrl } from './api';
 import { FileField, ImageField } from './attachments';
@@ -14,6 +14,9 @@ import { formatDate, formatTime } from './labels';
 import { MessageEditor, MessageView } from './MessageEditor';
 import { shortName } from './page';
 import { errorText } from './session';
+import { emptyTable, renderKey, sheetOf, tablesFilled, tablesProblem } from './table-edit';
+import { uploadTablesImage } from './table-render';
+import { TableEditor } from './TableEditor';
 import { useUnsavedGuard } from './unsaved';
 
 // Лимит текста сообщения в API MAX. Сервер проверяет сам текст, здесь — текст вместе с вариантами
@@ -27,6 +30,8 @@ type Values = {
 	synonyms: string[];
 	image: string | null;
 	imageText: string;
+	// null — обычная картинка, массив — таблицы, из которых картинку рисует браузер
+	tables: ContentTable[] | null;
 	file: string | null;
 	fileName: string | null;
 	isActive: boolean;
@@ -41,6 +46,7 @@ const toValues = (node: AdminContentNode): Values => ({
 	synonyms: node.synonyms,
 	image: node.image,
 	imageText: node.imageText ?? '',
+	tables: node.tables,
 	file: node.file,
 	fileName: node.fileName,
 	isActive: node.isActive,
@@ -168,7 +174,7 @@ type NodeFormProps = {
 // Монтируется заново при смене раздела или его версии (key в ContentPage): значения формы всегда от нее
 export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: NodeFormProps) => {
 	const [form] = Form.useForm<Values>();
-	const { message } = App.useApp();
+	const { message, modal: confirmModal } = App.useApp();
 	const navigate = useNavigate();
 	const initial = useMemo(() => toValues(node), [node]);
 	const watched = Form.useWatch([], form) as Partial<Values> | undefined;
@@ -181,30 +187,67 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 
 	const { leave, modal } = useUnsavedGuard(dirty, 'Если уйти сейчас, изменения в этом разделе пропадут.');
 
+	// tables — таблицы, чью картинку нужно нарисовать и загрузить до записи раздела.
+	// Сбой рендера или загрузки бросает ошибку до PATCH: раздел не меняется, форма сохраняет введённое
 	const save = useMutation({
-		mutationFn: (body: UpdateNodeRequest) => api.updateNode(node.id, body),
+		mutationFn: async ({ body, tables }: { body: UpdateNodeRequest; tables?: ContentTable[]; }) => {
+			const image = tables ? await uploadTablesImage(tables.map(sheetOf)) : undefined;
+
+			return api.updateNode(node.id, image ? { ...body, image } : body);
+		},
 		onSuccess: onSaved,
 	});
 
+	const tableMode = values.tables !== null;
+	const problem = values.tables ? tablesProblem(values.tables) : null;
+	// Админ не трогает обычную картинку: перейти на таблицу он может, только если картинки в разделе нет
+	const canTable = superadmin || !node.image || node.tables !== null;
+
+	const switchMode = (mode: string | number) => {
+		if (mode === 'table') {
+			form.setFieldValue('tables', [emptyTable()]);
+		} else if (values.tables && tablesFilled(values.tables)) {
+			confirmModal.confirm({
+				title: 'Вернуться к обычной картинке?',
+				content: 'Таблицы будут удалены из раздела. Картинка останется той, что нарисована по ним, и дальше её можно будет только заменить.',
+				okText: 'Убрать таблицы',
+				okButtonProps: { danger: true },
+				cancelText: 'Остаться',
+				onOk: () => form.setFieldValue('tables', null),
+			});
+		} else {
+			form.setFieldValue('tables', null);
+		}
+	};
+
 	const submit = () => {
 		const current = form.getFieldsValue(true);
+		const tables = current.tables;
+		const tablesChanged = JSON.stringify(tables) !== JSON.stringify(initial.tables);
+		// Картинка перерисовывается, только если изменилось то, что на ней видно
+		const draw = tables !== null && (initial.tables === null || renderKey(tables) !== renderKey(initial.tables));
 
 		save.mutate({
-			updatedAt: node.updatedAt,
-			title: current.title,
-			synonyms: current.synonyms,
-			isActive: current.isActive,
-			isHidden: current.isHidden,
-			...node.type === 'section' ? { text: current.text, file: current.file, fileName: current.fileName } : {},
-			...node.type === 'section' && superadmin ? { image: current.image, imageText: current.imageText } : {},
-			...node.type === 'link' ? { url: current.url } : {},
-			...node.type === 'goto' ? { targetId: current.targetId } : {},
+			tables: draw ? tables : undefined,
+			body: {
+				updatedAt: node.updatedAt,
+				title: current.title,
+				synonyms: current.synonyms,
+				isActive: current.isActive,
+				isHidden: current.isHidden,
+				...node.type === 'section' ? { text: current.text, file: current.file, fileName: current.fileName } : {},
+				// В режиме таблицы картинку и текст для поиска даёт сохранение таблиц
+				...node.type === 'section' && superadmin && tables === null ? { image: current.image, imageText: current.imageText } : {},
+				...node.type === 'section' && tablesChanged ? { tables } : {},
+				...node.type === 'link' ? { url: current.url } : {},
+				...node.type === 'goto' ? { targetId: current.targetId } : {},
+			},
 		});
 	};
 
 	const disable = () => {
 		setDeleting(false);
-		save.mutate({ updatedAt: node.updatedAt, isActive: false });
+		save.mutate({ body: { updatedAt: node.updatedAt, isActive: false } });
 	};
 
 	const deleted = async () => {
@@ -293,10 +336,32 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 							<>
 								<SectionTitle>Вложения</SectionTitle>
 
+								<Form.Item label="Картинка в сообщении">
+									<Segmented
+										value={tableMode ? 'table' : 'image'}
+										onChange={switchMode}
+										options={[
+											{ value: 'image', label: 'Картинка', disabled: tableMode && !superadmin },
+											{ value: 'table', label: 'Таблица', disabled: !canTable },
+										]}
+									/>
+								</Form.Item>
+
+								{tableMode && (
+									<>
+										<Form.Item name="tables" noStyle>
+											<TableEditor problem={problem} />
+										</Form.Item>
+										{!superadmin && <div className="muted small table-note">Обычную картинку в этом разделе заменить нельзя: она нарисована по таблицам.</div>}
+									</>
+								)}
+
 								<div className="attachments-grid">
-									<Form.Item name="image" label="Картинка">
-										<ImageField readOnly={!superadmin} />
-									</Form.Item>
+									{!tableMode && (
+										<Form.Item name="image" label="Картинка">
+											<ImageField readOnly={!superadmin} />
+										</Form.Item>
+									)}
 									<Form.Item name="file" label="Файл">
 										<FileField name={values.fileName} onNameChange={fileName => form.setFieldValue('fileName', fileName)} />
 									</Form.Item>
@@ -305,11 +370,11 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 									<Input />
 								</Form.Item>
 
-								{values.image !== initial.image && (
+								{!tableMode && values.image !== initial.image && (
 									<Alert className="form-alert" type="warning" title="Проверьте текст с картинки, поиск опирается на него" />
 								)}
 
-								{(values.image || node.imageText) && (
+								{!tableMode && (values.image || node.imageText) && (
 									<Form.Item
 										name="imageText"
 										label="Текст с картинки"
@@ -358,7 +423,7 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 				)}
 
 				<div className="form-bar">
-					<Button type="primary" htmlType="submit" disabled={!dirty} loading={save.isPending}>Сохранить</Button>
+					<Button type="primary" htmlType="submit" disabled={!dirty || problem !== null} loading={save.isPending}>Сохранить</Button>
 					{dirty && (
 						<>
 							<Button onClick={() => form.resetFields()}>Отменить правки</Button>
