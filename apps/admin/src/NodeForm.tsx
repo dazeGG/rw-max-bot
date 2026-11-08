@@ -177,7 +177,8 @@ export const NodeForm = ({ node, tree, settings, user, onSaved, onRefresh }: Nod
 	const { message, modal: confirmModal } = App.useApp();
 	const navigate = useNavigate();
 	const initial = useMemo(() => toValues(node), [node]);
-	const watched = Form.useWatch([], form) as Partial<Values> | undefined;
+	// preserve: поле tables появляется в форме только в режиме таблицы, но следить за ним нужно и до этого
+	const watched = Form.useWatch([], { form, preserve: true }) as Partial<Values> | undefined;
 	const values: Values = { ...initial, ...watched };
 	const [deleting, setDeleting] = useState(false);
 	const superadmin = user.role === 'superadmin';

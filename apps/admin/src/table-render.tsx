@@ -20,6 +20,8 @@ export type SheetTable = {
 	logoBlur?: string;
 };
 
+// Размеры в em, а не rem: у админки корневой шрифт 14px, а картинка рисуется под 16px (шрифт .table-sheet),
+// иначе она выходила на 12% меньше исходной. Поэтому rem из width и logoBlur заменяются на em.
 export const TableSheet = ({ table }: { table: SheetTable; }) => {
 	const [head, ...body] = table.rows;
 	const row = (cells: string[], className: string, key?: number) => (
@@ -28,13 +30,13 @@ export const TableSheet = ({ table }: { table: SheetTable; }) => {
 		</div>
 	);
 	return (
-		<div className="table-sheet" style={{ width: table.width }}>
+		<div className="table-sheet" style={{ width: table.width.replace('rem', 'em') }}>
 			<div className="grain-overlay" />
 			<div className="table">
 				<h1 className="table__title">{table.title}</h1>
 				{table.description && <p className="table__description">{table.description}</p>}
 				<div className="table__wrapper">
-					<img className="table__logo" src="/logo.png" alt="" style={{ filter: `blur(${table.logoBlur ?? '.75rem'})` }} />
+					<img className="table__logo" src="/logo.png" alt="" style={{ filter: `blur(${(table.logoBlur ?? '.75rem').replace('rem', 'em')})` }} />
 					<div className="table__body">
 						{row(head, 'table__row table__head')}
 						{body.map((cells, index) => row(cells, 'table__row', index))}
