@@ -51,17 +51,21 @@ export const tablesError = (tables: ContentTable[]): string | null => {
 // Заголовок «Плацкарт» в середине фразы пишется строчной, а «ЖДЯ» и «№ 317» остаются как есть
 const lowerFirstWord = (header: string) => header.replace(/^(\p{Lu})(\p{Ll}+)(?=[\s,.;:]|$)/u, (_, first: string, rest: string) => first.toLowerCase() + rest);
 
-const isEmptyCell = (cell: string) => !cell.trim() || cell.trim() === '-';
+// Перевод строки внутри ячейки схлопывается: поиск делит текст по строкам на отдельные факты, а ячейка — часть одного факта
+const clean = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+const isEmptyCell = (cell: string) => !clean(cell) || clean(cell) === '-';
 
 // Каждая строка таблицы — отдельная фраза для поиска: «Томмот: плацкарт 2 039 ₽, купе от 2 803 ₽»
 export const tablesSearchText = (tables: ContentTable[]): string =>
 	tables.filter(table => table.searchable).map(table => {
 		const [header, ...body] = table.rows;
 		const lines = body.flatMap(row => {
-			const parts = row.slice(1).flatMap((cell, index) => isEmptyCell(cell) ? [] : [`${lowerFirstWord(header[index + 1].trim())} ${cell.trim()}`.trim()]);
-			return parts.length > 0 && !isEmptyCell(row[0]) ? [`${row[0].trim()}: ${parts.join(', ')}`] : [];
+			const parts = row.slice(1).flatMap((cell, index) => isEmptyCell(cell) ? [] : [`${lowerFirstWord(clean(header[index + 1]))} ${clean(cell)}`.trim()]);
+			return parts.length > 0 && !isEmptyCell(row[0]) ? [`${clean(row[0])}: ${parts.join(', ')}`] : [];
 		});
-		const description = table.description?.trim();
+		const title = clean(table.title);
+		const description = clean(table.description ?? '');
 
-		return [description ? `${table.title.trim()}. ${description}` : table.title.trim(), ...lines].join('\n');
+		return [description ? `${title}. ${description}` : title, ...lines].join('\n');
 	}).join('\n\n');
