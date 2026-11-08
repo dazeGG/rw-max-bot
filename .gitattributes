@@ -1,0 +1,2 @@
+# deploy/deploy.sh выкладывает git archive: конфиг дев-стенда на прод не попадает
+deploy/dev export-ignore
