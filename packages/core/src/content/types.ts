@@ -5,6 +5,15 @@
 // goto    — пункт, который ведет в другой раздел (чтобы не дублировать контент).
 export type NodeType = 'section' | 'link' | 'goto';
 
+// Таблица раздела: картинку по ней рисует браузер сотрудника. Первая строка rows — шапка
+export type ContentTable = {
+	title: string;
+	description?: string;
+	rows: string[][];
+	// Включать ли содержимое в поиск по разделам
+	searchable: boolean;
+};
+
 export type ContentNode = {
 	id: number;
 	parentId: number | null;
@@ -20,6 +29,8 @@ export type ContentNode = {
 	image: string | null;
 	// Текст, изображённый на картинке (таблица цен, расписание). Пользователю не показывается, только для поиска
 	imageText: string | null;
+	// Если есть, картинка нарисована по этим таблицам, а imageText собран из них
+	tables: ContentTable[] | null;
 	file: string | null;
 	fileName: string | null;
 	// Фразы, по которым раздел находится по свободному тексту

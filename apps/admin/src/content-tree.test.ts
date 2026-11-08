@@ -16,6 +16,7 @@ const node = (id: number, parentId: number | null, fields: Partial<AdminContentN
 	targetId: null,
 	image: null,
 	imageText: null,
+	tables: null,
 	file: null,
 	fileName: null,
 	synonyms: [],

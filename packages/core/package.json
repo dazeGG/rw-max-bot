@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./render": "./src/render.ts"
+    "./render": "./src/render.ts",
+    "./tables": "./src/tables.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

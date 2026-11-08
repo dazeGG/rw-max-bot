@@ -4,7 +4,7 @@
 import { OPERATOR_CODE, OPERATOR_MENU_CODE } from '../dialog/support';
 
 import { DEFAULT_SETTINGS, ROOT_CODE } from './types';
-import type { ContentNode, NodeType, Settings } from './types';
+import type { ContentNode, ContentTable, NodeType, Settings } from './types';
 
 export type SeedNode = {
 	code: string;
@@ -15,6 +15,7 @@ export type SeedNode = {
 	target?: string;
 	image?: string;
 	imageText?: string;
+	tables?: ContentTable[];
 	file?: string;
 	fileName?: string;
 	synonyms?: string[];
@@ -610,6 +611,7 @@ export const flattenSeed = (tree: SeedNode = SEED_TREE): ContentNode[] => {
 			targetId: null,
 			image: seed.image ?? null,
 			imageText: seed.imageText ?? null,
+			tables: seed.tables ?? null,
 			file: seed.file ?? null,
 			fileName: seed.fileName ?? null,
 			synonyms: seed.synonyms ?? [],

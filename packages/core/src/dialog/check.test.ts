@@ -20,6 +20,7 @@ const node = (id: number, parentId: number | null, code: string, title: string):
 	synonyms: [],
 	image: null,
 	imageText: null,
+	tables: null,
 	file: null,
 	fileName: null,
 	isActive: true,

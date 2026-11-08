@@ -44,6 +44,7 @@ const FIELD_LABELS: Record<string, string> = {
 	synonyms: 'фразы',
 	image: 'картинка',
 	imageText: 'текст с картинки',
+	tables: 'таблицы',
 	file: 'файл',
 	fileName: 'имя файла',
 	isActive: 'включение',

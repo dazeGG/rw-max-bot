@@ -10,6 +10,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { DEFAULT_SETTINGS, OPERATOR_CODE, OPERATOR_MENU_CODE, ROOT_CODE, supportHoursError } from '@rw/core';
 import type { AdminContentNode, AdminUser, ContentApplied, ContentNode, ContentVersionDiff, ContentVersionEntry, CreateNodeRequest, MoveNodeRequest, Settings, UpdateNodeRequest, UpdateSettingsRequest, UploadKind, UploadResult } from '@rw/core';
 import { admins, auditLog, contentNodes, contentVersions, db, settings } from '@rw/db';
+import { tablesError, tablesSearchText } from '@rw/core/tables';
 import { errorMessage } from '@rw/runtime';
 
 import { writeAudit } from '../audit';
@@ -18,7 +19,7 @@ import { requireAdmin, requireRole } from '../auth/guards';
 import { config } from '../config';
 import { loadAdminContent, loadContent, loadSettings, storeSnapshot, toAdminNode } from '../content';
 import { notifyBotContentChanged } from '../content-notifier';
-import { diffContent, HISTORY_LIMIT, imagesChanged, linkUrlError, mergeHistory, messageError, moveError, normalizeSynonyms, parentError, settingError, subtreeIds, targetError, toContentNode } from '../content-rules';
+import { diffContent, HISTORY_LIMIT, imagesChanged, keepTables, legacyTableIds, linkUrlError, mergeHistory, messageError, moveError, normalizeSynonyms, parentError, settingError, subtreeIds, targetError, toContentNode } from '../content-rules';
 import { RuleError } from '../errors';
 import { logger } from '../logger';
 import { assertUploadSize, fileNameError, mediaFile, saveUpload, uploadedPathError } from '../uploads';
@@ -48,6 +49,17 @@ const createBody = {
 	},
 } as const;
 
+const tableBody = {
+	type: 'object',
+	required: ['title', 'rows', 'searchable'],
+	properties: {
+		title: { type: 'string' },
+		description: { type: 'string' },
+		rows: { type: 'array', maxItems: 200, items: { type: 'array', maxItems: 8, items: { type: 'string' } } },
+		searchable: { type: 'boolean' },
+	},
+} as const;
+
 const attachmentPath = { type: ['string', 'null'], maxLength: 300 } as const;
 
 const updateBody = {
@@ -62,6 +74,7 @@ const updateBody = {
 		synonyms: { type: 'array', maxItems: 200, items: { type: 'string', maxLength: 300 } },
 		image: attachmentPath,
 		imageText: { type: ['string', 'null'], maxLength: 10_000 },
+		tables: { type: ['array', 'null'], maxItems: 5, items: tableBody },
 		file: attachmentPath,
 		fileName: { type: ['string', 'null'], maxLength: 300 },
 		isActive: { type: 'boolean' },
@@ -82,7 +95,8 @@ const uploadQuery = {
 	type: 'object',
 	required: ['kind', 'name'],
 	properties: {
-		kind: { type: 'string', enum: ['image', 'file'] },
+		// table — картинка таблицы: ее может загрузить и админ, а в хранилище она ложится как обычная картинка
+		kind: { type: 'string', enum: ['image', 'file', 'table'] },
 		name: { type: 'string', minLength: 1, maxLength: 300 },
 	},
 } as const;
@@ -135,8 +149,11 @@ const loadVersion = async (reader: Pick<typeof db, 'select'>, version: string) =
 		throw new RuleError(404, 'Такой версии нет. Обновите страницу');
 	}
 
+	const raw = row.nodes as ContentNode[];
+
 	return {
-		nodes: (row.nodes as ContentNode[]).map(toContentNode),
+		nodes: raw.map(toContentNode),
+		legacy: legacyTableIds(raw),
 		settings: row.settings as Settings,
 	};
 };
@@ -245,6 +262,10 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 			}
 
 			const file = body.file === undefined ? row.file : emptyToNull(body.file);
+			// Пустой список — то же, что нет таблиц
+			const tables = body.tables === undefined ? row.tables : body.tables?.length ? body.tables : null;
+
+			assertRule(tables ? tablesError(tables) : null);
 
 			const next = {
 				title: body.title?.trim() ?? row.title,
@@ -253,7 +274,9 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 				targetId: body.targetId === undefined ? row.targetId : body.targetId,
 				synonyms: body.synonyms ? normalizeSynonyms(body.synonyms) : row.synonyms,
 				image: body.image === undefined ? row.image : emptyToNull(body.image),
-				imageText: body.imageText === undefined ? row.imageText : emptyToNull(body.imageText),
+				// Текст для поиска у раздела с таблицами всегда собирает сервер: он не расходится с таблицей
+				imageText: tables ? emptyToNull(tablesSearchText(tables)) : body.imageText === undefined ? row.imageText : emptyToNull(body.imageText),
+				tables,
 				file,
 				// Без файла имени быть не может: иначе бот показал бы чужое имя у следующего файла
 				fileName: file === null ? null : body.fileName === undefined ? row.fileName : emptyToNull(body.fileName),
@@ -267,12 +290,23 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 				return toAdminNode(row);
 			}
 
-			if (changed.includes('imageText') && actor.role !== 'superadmin') {
+			// Админ меняет картинку вместе с таблицей, из которой она нарисована. Убрать таблицу, то есть оставить обычную картинку, может только суперадмин
+			const withTables = changed.includes('tables') && next.tables !== null;
+
+			if (changed.includes('tables') && next.tables === null && actor.role !== 'superadmin') {
+				throw new RuleError(403, 'Убрать таблицу может только суперадмин');
+			}
+
+			if (changed.includes('imageText') && !withTables && actor.role !== 'superadmin') {
 				throw new RuleError(403, 'Текст с картинки может менять только суперадмин');
 			}
 
-			if (changed.includes('image') && actor.role !== 'superadmin') {
+			if (changed.includes('image') && !withTables && actor.role !== 'superadmin') {
 				throw new RuleError(403, 'Картинку может менять только суперадмин');
+			}
+
+			if (changed.includes('tables') && row.type !== 'section') {
+				throw new RuleError(400, 'Таблицы бывают только у раздела с ответом');
 			}
 
 			if ((changed.includes('image') || changed.includes('file')) && row.type !== 'section') {
@@ -379,7 +413,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 	});
 
 	// Файл кладется на сервер, в раздел он попадет при сохранении формы: так работают проверка чужой правки, журнал и история
-	app.post<{ Querystring: { kind: UploadKind; name: string; }; }>('/uploads', { schema: { querystring: uploadQuery } }, async (request): Promise<UploadResult> => {
+	app.post<{ Querystring: { kind: UploadKind | 'table'; name: string; }; }>('/uploads', { schema: { querystring: uploadQuery } }, async (request): Promise<UploadResult> => {
 		const { kind, name } = request.query;
 
 		if (!(request.body instanceof Readable)) {
@@ -394,9 +428,11 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 			assertRule(fileNameError(name));
 		}
 
-		assertUploadSize(kind, Number(request.headers['content-length'] ?? 0));
+		const stored = kind === 'table' ? 'image' : kind;
 
-		return saveUpload(kind, name, request.body);
+		assertUploadSize(stored, Number(request.headers['content-length'] ?? 0));
+
+		return saveUpload(stored, name, request.body);
 	});
 
 	app.get<{ Params: { '*': string; }; }>('/media/*', async (request, reply) => {
@@ -478,7 +514,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 	app.get<{ Params: { version: string; }; }>('/versions/:version', { schema: { params: versionParams } }, async (request): Promise<ContentVersionDiff> => {
 		const target = await loadVersion(db, request.params.version);
 		const current = await loadContent();
-		const diff = keepOperator(diffContent(current.nodes, target.nodes));
+		const diff = keepOperator(diffContent(current.nodes, keepTables(current.nodes, target.nodes, target.legacy)));
 
 		return {
 			changed: diff.changed.map(node => node.title),
@@ -498,7 +534,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 			const target = await loadVersion(tx, version);
 			const current = (await allNodes(tx)).map(toContentNode);
 			const currentSettings = await loadSettings(tx);
-			const { changed, returned, removed } = keepOperator(diffContent(current, target.nodes));
+			const { changed, returned, removed } = keepOperator(diffContent(current, keepTables(current, target.nodes, target.legacy)));
 			const changedKeys = changedSettings(currentSettings, target.settings);
 
 			if (!target.nodes.some(node => node.code === ROOT_CODE && node.isActive)) {
@@ -540,6 +576,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
 							targetId: sql`excluded.target_id`,
 							image: sql`excluded.image`,
 							imageText: sql`excluded.image_text`,
+							tables: sql`excluded.tables`,
 							file: sql`excluded.file`,
 							fileName: sql`excluded.file_name`,
 							synonyms: sql`excluded.synonyms`,

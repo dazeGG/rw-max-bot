@@ -1,6 +1,6 @@
 // Контракты HTTP API: общие для API, бота и админки
 
-import type { ContentNode, NodeType, SettingKey, Settings } from './content/types';
+import type { ContentNode, ContentTable, NodeType, SettingKey, Settings } from './content/types';
 
 // Контент для бота. version меняется при любой правке, бот передает ее в If-None-Match
 export type ContentSnapshot = {
@@ -62,6 +62,7 @@ export type UpdateNodeRequest = {
 	synonyms?: string[];
 	image?: string | null;
 	imageText?: string | null;
+	tables?: ContentTable[] | null;
 	file?: string | null;
 	fileName?: string | null;
 	isActive?: boolean;

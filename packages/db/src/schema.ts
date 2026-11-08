@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { bigint, boolean, check, date, index, integer, jsonb, pgTable, primaryKey, serial, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
-import type { SupportAttachment } from '@rw/core';
+import type { ContentTable, SupportAttachment } from '@rw/core';
 
 // Разделы и меню бота (ТЗ п. 4.1 «Разделы и меню бота»)
 export const contentNodes = pgTable('content_nodes', {
@@ -16,6 +16,7 @@ export const contentNodes = pgTable('content_nodes', {
 	targetId: integer('target_id').references((): AnyPgColumn => contentNodes.id, { onDelete: 'set null' }),
 	image: text('image'),
 	imageText: text('image_text'),
+	tables: jsonb('tables').$type<ContentTable[]>(),
 	file: text('file'),
 	fileName: text('file_name'),
 	synonyms: text('synonyms').array().notNull().default(sql`'{}'::text[]`),

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_SETTINGS, flattenSeed } from '@rw/core';
-import type { ContentNode, NodeType, SettingKey } from '@rw/core';
+import type { ContentNode, ContentTable, NodeType, SettingKey } from '@rw/core';
+import { tablesSearchText } from '@rw/core/tables';
 
-import { diffContent, imagesChanged, linkUrlError, mergeHistory, messageError, moveError, normalizeSynonyms, parentError, settingError, subtreeIds, targetError, toContentNode } from './content-rules';
+import { diffContent, imagesChanged, keepTables, legacyTableIds, linkUrlError, mergeHistory, messageError, moveError, normalizeSynonyms, parentError, settingError, subtreeIds, targetError, toContentNode } from './content-rules';
 
 const node = (id: number, parentId: number | null, type: NodeType = 'section', targetId: number | null = null) => ({ id, parentId, type, targetId });
 
@@ -138,6 +139,58 @@ describe('история версий', () => {
 		expect(imagesChanged([root, first], [{ ...first, title: 'x' }])).toBe(false);
 		expect(imagesChanged([root, first], [{ ...first, image: 'new.jpg' }])).toBe(true);
 		expect(imagesChanged([root, first], [{ ...first, imageText: 'новые цены' }])).toBe(true);
+	});
+
+	describe('таблицы', () => {
+		const tables: ContentTable[] = [{ title: 'Тарифы', rows: [['Станция', 'Плацкарт'], ['Томмот', '2 039 ₽']], searchable: true }];
+		const withTable = { ...seed[1], image: 'generated/a.jpg', imageText: tablesSearchText(tables), tables };
+		const plain = { ...seed[1], image: 'generated/a.jpg', imageText: 'текст', tables: null };
+
+		it('админ возвращает картинку, только если таблицы есть и сейчас, и в версии', () => {
+			const other = { ...withTable, image: 'generated/b.jpg', imageText: 'другое', tables: [{ ...tables[0], title: 'Новое' }] };
+
+			expect(imagesChanged([withTable], [other])).toBe(false);
+			expect(imagesChanged([plain], [other]), 'сейчас таблицы нет').toBe(true);
+			expect(imagesChanged([withTable], [{ ...plain, image: 'generated/b.jpg' }]), 'в версии таблицы нет').toBe(true);
+			expect(imagesChanged([withTable], [{ ...withTable, tables: null }]), 'таблицу сняли, картинка та же').toBe(true);
+		});
+
+		it('различает отсутствие поля в старом снимке и null', () => {
+			const old: Partial<ContentNode> = { ...withTable };
+			delete old.tables;
+
+			expect([...legacyTableIds([old, { ...plain }])]).toEqual([seed[1].id]);
+			expect(toContentNode(old as ContentNode).tables).toBeNull();
+		});
+
+		it('возврат старого снимка без поля tables не стирает таблицу, если картинка та же', () => {
+			const oldSnapshot = { ...withTable, imageText: 'старый текст', tables: null };
+			const kept = keepTables([withTable], [oldSnapshot], new Set([withTable.id]));
+
+			expect(kept[0].tables).toEqual(tables);
+			expect(kept[0].imageText).toBe(withTable.imageText);
+			expect(diffContent([withTable], kept).changed).toEqual([]);
+		});
+
+		it('старый снимок с другой картинкой таблицу снимает', () => {
+			const oldSnapshot = { ...withTable, image: 'generated/old.jpg', tables: null };
+			const kept = keepTables([withTable], [oldSnapshot], new Set([withTable.id]));
+
+			expect(kept[0].tables).toBeNull();
+			expect(imagesChanged([withTable], diffContent([withTable], kept).changed)).toBe(true);
+		});
+
+		it('снимок с явным null таблицу снимает', () => {
+			expect(keepTables([withTable], [{ ...withTable, tables: null }], new Set())[0].tables).toBeNull();
+		});
+
+		it('откат новой версии возвращает таблицу, картинку и текст вместе', () => {
+			const edited = { ...withTable, image: 'generated/new.jpg', imageText: 'новый', tables: [{ ...tables[0], title: 'Новые' }] };
+			const { changed } = diffContent([edited], keepTables([edited], [withTable], new Set()));
+
+			expect(changed).toEqual([withTable]);
+			expect(imagesChanged([edited], changed)).toBe(false);
+		});
 	});
 
 	const at = (minute: number) => new Date(Date.UTC(2026, 10, 2, 10, minute));

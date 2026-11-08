@@ -126,6 +126,7 @@ export const toContentNode = (node: ContentNode): ContentNode => ({
 	targetId: node.targetId ?? null,
 	image: node.image ?? null,
 	imageText: node.imageText ?? null,
+	tables: node.tables ?? null,
 	file: node.file ?? null,
 	fileName: node.fileName ?? null,
 	synonyms: node.synonyms ?? [],
@@ -145,12 +146,36 @@ export const diffContent = (current: ContentNode[], target: ContentNode[]) => {
 	};
 };
 
+// Разделы снимка без ключа tables: старый снимок про таблицы не знает, и это не то же самое, что null
+export const legacyTableIds = (raw: Partial<ContentNode>[]): Set<number> => new Set(raw.filter(node => !('tables' in node)).map(node => node.id!));
+
+// Если картинка раздела та же, она по-прежнему нарисована по текущей таблице: возврат к старому снимку не должен ее стирать
+export const keepTables = (current: ContentNode[], target: ContentNode[], legacy: Set<number>): ContentNode[] => {
+	const currentById = new Map(current.map(node => [node.id, node]));
+
+	return target.map(node => {
+		const now = currentById.get(node.id);
+
+		return now?.tables && legacy.has(node.id) && node.image === now.image ? { ...node, tables: now.tables, imageText: now.imageText } : node;
+	});
+};
+
 // Картинки и текст с картинки меняет только суперадмин, в том числе возвратом версии.
+// Исключение: админ возвращает раздел, у которого таблицы есть и сейчас, и в целевой версии, — картинка вернется вместе с таблицей.
 // Раздел, вернувшийся или исчезнувший целиком, не считается: удалять разделы с картинками админу можно
 export const imagesChanged = (current: ContentNode[], changed: ContentNode[]): boolean => {
 	const currentById = new Map(current.map(node => [node.id, node]));
 
-	return changed.some(node => node.image !== currentById.get(node.id)?.image || node.imageText !== currentById.get(node.id)?.imageText);
+	return changed.some(node => {
+		const now = currentById.get(node.id);
+
+		if (now?.tables && node.tables) {
+			return false;
+		}
+
+		// Снятие таблицы превращает раздел в обычную картинку: это тоже только суперадмин
+		return node.image !== now?.image || node.imageText !== now?.imageText || (now?.tables != null) !== (node.tables != null);
+	});
 };
 
 export const settingError = (key: SettingKey, value: string, nodes: Pick<ContentNode, 'code' | 'parentId'>[]): string | null => {
