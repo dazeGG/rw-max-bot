@@ -1,0 +1,46 @@
+/* Шрифты лежат в public/fonts: в закрытом контуре Google Fonts недоступны.
+   Взяты подмножества cyrillic, latin и latin-ext (в нём знак ₽). */
+@font-face { font-family: Montserrat; font-weight: 100 900; font-display: swap; src: url(/fonts/montserrat-cyrillic-wght-normal.woff2) format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: Montserrat; font-weight: 100 900; font-display: swap; src: url(/fonts/montserrat-latin-ext-wght-normal.woff2) format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: Montserrat; font-weight: 100 900; font-display: swap; src: url(/fonts/montserrat-latin-wght-normal.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Open Sans'; font-weight: 300 800; font-display: swap; src: url(/fonts/open-sans-cyrillic-wght-normal.woff2) format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Open Sans'; font-weight: 300 800; font-display: swap; src: url(/fonts/open-sans-latin-ext-wght-normal.woff2) format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Open Sans'; font-weight: 300 800; font-display: swap; src: url(/fonts/open-sans-latin-wght-normal.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+/* Шаблон из tools/image-generator/generate-images.ts. Всё под .table-sheet;
+   сброс через :where() с нулевой специфичностью, как в исходном документе,
+   иначе он перебил бы h1/h2 и остальные правила. */
+.table-sheet {
+	--border-width: 0.125rem;
+	--border-color: #c7d9f5;
+	--border-color-header: #7aa2f7;
+	--border: var(--border-width) solid var(--border-color);
+	position: relative;
+	line-height: 1;
+	font-size: 16px;
+	color: #000;
+	font-family: 'Open Sans', sans-serif;
+}
+:where(.table-sheet) *, :where(.table-sheet) ::before, :where(.table-sheet) ::after {
+	color: inherit; text-decoration: none; margin: 0; padding: 0; border: 0; box-sizing: border-box;
+	font: inherit; vertical-align: baseline; list-style: none; outline: 0; background: 0 0;
+}
+.table-sheet * { font-family: 'Open Sans', sans-serif; }
+.table-sheet h1, .table-sheet h2 { font-family: Montserrat, sans-serif; font-weight: 600; color: #1a3a8f; }
+.table-sheet h1 { font-size: 2rem; }
+.table-sheet h2 { font-size: 1.5rem; }
+.table-sheet .table { background-color: #e1edfd; padding: 1rem; font-size: 1rem; display: flex; flex-direction: column; gap: 1rem; }
+.table-sheet .table__description { color: #1a3a8f; }
+.table-sheet .table__wrapper { position: relative; }
+.table-sheet .table__logo { position: absolute; width: 100%; height: 100%; max-width: 90%; max-height: 90%; object-fit: contain; top: 50%; left: 50%; transform: translate(-50%, -50%); aspect-ratio: 1/1; z-index: 1; opacity: .25; }
+.table-sheet .table__body { color: #2c3e50; }
+.table-sheet .table__row { display: grid; gap: 1rem; padding-inline: 0.75rem; border-inline: var(--border); border-bottom: var(--border); z-index: 0; }
+.table-sheet .table__row:first-child { border-top: var(--border); border-radius: .5rem .5rem 0 0; }
+.table-sheet .table__row:last-child { border-radius: 0 0 .5rem .5rem; }
+.table-sheet .table__row:nth-child(odd):not(:first-child) { background: #f0f6ff; }
+.table-sheet .table__item { flex: 1; padding-block: 0.75rem; z-index: 2; }
+.table-sheet .table__head { background-color: #a0c4ff; color: #1a3a8f; border-color: var(--border-color-header) !important; }
+.table-sheet .table__head .table__item { display: flex; align-items: center; justify-content: space-between; padding-block: 0.5rem; height: 2.5rem; font-weight: 700; }
+.table-sheet .table__head .table__item:not(:last-child)::after { display: block; content: ""; width: var(--border-width); height: 100%; background-color: var(--border-color-header); }
+/* Тот же SVG, что в исходном шаблоне, но в base64: html-to-image ломает data-URI со скобками внутри url(). */
+.table-sheet .grain-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; background-image: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjAwIDIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZmlsdGVyIGlkPSJub2lzZSI+PGZlVHVyYnVsZW5jZSB0eXBlPSJmcmFjdGFsTm9pc2UiIGJhc2VGcmVxdWVuY3k9IjMiIG51bU9jdGF2ZXM9IjMiIHN0aXRjaFRpbGVzPSJzdGl0Y2giLz48L2ZpbHRlcj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWx0ZXI9InVybCgjbm9pc2UpIiBvcGFjaXR5PSIwLjI1Ii8+PC9zdmc+"); }

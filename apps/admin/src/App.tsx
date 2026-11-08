@@ -18,6 +18,7 @@ import { errorText, isManager, logOut, QUESTIONS_KEY, ROLE_LABELS, useMe } from 
 import { SettingsPage } from './SettingsPage';
 import { StaffPage } from './StaffPage';
 import { SupportPage, useSupportFeed } from './SupportPage';
+import { TableRenderCheck } from './TableRenderCheck';
 
 const SIDER_WIDTH = 232;
 
@@ -95,6 +96,7 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 							<Route path="/staff" element={<StaffPage user={user} />} />
 						</>
 					)}
+					{user.role === 'superadmin' && <Route path="/table-render-check" element={<TableRenderCheck />} />}
 					<Route path="/support/:ticketId?" element={<SupportPage user={user} />} />
 					<Route path="/account" element={<AccountPage user={user} />} />
 					<Route path="*" element={<Navigate to={manager ? '/content' : '/support'} replace />} />
