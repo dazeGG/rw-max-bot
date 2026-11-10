@@ -1,6 +1,8 @@
-# Дополнение к deploy/docker-compose.yml для дев-стенда: админка за Caddy и лимиты под сервер с 1 ядром.
+# Дополнение к deploy/docker-compose.yml для дев-стенда на сервере войсрума.
 # Пути здесь считаются от deploy/, папки первого файла compose.
-# На сервере кроме стенда работают VPN и другие боты, поэтому памяти контейнерам задан потолок.
+# Порты 80 и 443 занимает Caddy войсрума: он принимает HTTPS для наших доменов (deploy/dev/voiceroom-sites.caddy)
+# и передает запросы контейнеру web по общей сети voiceroom_default. Свои порты стенд не публикует.
+# Войсрум — голосовой сервис: лимиты не дают стенду отнять у него процессор и память.
 
 services:
   postgres:
@@ -11,10 +13,20 @@ services:
       BOT_USERNAME: ${BOT_USERNAME:?}
       ADMIN_URL: https://${ADMIN_DOMAIN:?}
     mem_limit: 400m
+    networks:
+      default:
+        # В сети войсрума есть свой сервис api: web обращается к нашему только по уникальному имени
+        aliases: [rw-max-bot-api]
 
   bot:
     environment:
       ONNX_THREADS: 1
+    # Без реранкера (RERANK_DEPTH=0 в .env) бот занимает около 0,5 ГБ
+    mem_limit: 1g
+    cpus: 1
+    networks:
+      default:
+        aliases: [rw-max-bot-bot]
 
   web:
     build:
@@ -22,4 +34,14 @@ services:
       dockerfile: Dockerfile.web
     environment:
       ADMIN_DOMAIN: ${ADMIN_DOMAIN:?}
+    ports: !reset []
     mem_limit: 128m
+    networks:
+      default:
+      voiceroom:
+        aliases: [rw-max-bot-web]
+
+networks:
+  voiceroom:
+    name: voiceroom_default
+    external: true

@@ -1,0 +1,8 @@
+# Сайты дев-стенда rw-max-bot на Caddy войсрума. Сертификаты и HTTPS здесь, дальше запрос идет по HTTP
+# в контейнер web стенда по сети voiceroom_default. deploy/dev/deploy.sh кладет файл в
+# ~/VoiceRoom/config/caddy/sites.d/rw-max-bot.caddy, проверяет конфиг Caddy войсрума и только потом перечитывает его:
+# ошибка в этом файле не дала бы Caddy войсрума запуститься.
+
+rw-bot.dazinho.ru, admin-rw-bot.dazinho.ru {
+	reverse_proxy rw-max-bot-web:80
+}

@@ -1,34 +1,19 @@
 #!/usr/bin/env bash
-# Однократная подготовка дев-стенда (Ubuntu 22.04, от root). Повторный запуск ничего не ломает.
+# Однократная подготовка дев-стенда на сервере войсрума (Ubuntu 22.04). Повторный запуск ничего не ломает.
 #
-#   ssh root@109.120.133.56 'bash -s' < deploy/dev/server-setup.sh
+#   ssh daze@193.233.91.146 'bash -s' < deploy/dev/server-setup.sh
 #
-# Docker на сервере уже стоит и обслуживает VPN, поэтому ставятся только compose и buildx из того же источника.
-# ufw не включается: на сервере работают другие сервисы со своими портами.
-# BOT_TOKEN вписывается вручную: это токен дев-бота, не боевой.
+# Работает от пользователя daze без sudo: ему хватает группы docker. Docker и compose уже стоят, их обслуживает войсрум.
+# Порты 80 и 443 у Caddy войсрума, наши сайты подключает deploy/dev/deploy.sh.
+# Токен дев-бота берется из ~/rw-bot-token, если пользователь его туда положил; иначе вписать BOT_TOKEN в .env вручную.
 
 set -euo pipefail
 
-APP_DIR=/opt/rw-max-bot
-ENV_FILE="$APP_DIR/.env"
+APP_DIR=$HOME/rw-max-bot
+ENV_FILE=$APP_DIR/.env
 
-echo '== compose'
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends docker-compose-v2 docker-buildx
 docker compose version
 
-echo '== swap'
-if ! swapon --show | grep -q /swapfile; then
-	fallocate -l 1G /swapfile
-	chmod 600 /swapfile
-	mkswap /swapfile
-	swapon /swapfile
-	grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
-fi
-echo 'vm.swappiness=10' > /etc/sysctl.d/90-rw-dev-swap.conf
-sysctl -q -p /etc/sysctl.d/90-rw-dev-swap.conf
-swapon --show
-
-echo '== .env'
 mkdir -p "$APP_DIR"
 
 if [ ! -f "$ENV_FILE" ]; then
@@ -37,21 +22,31 @@ if [ ! -f "$ENV_FILE" ]; then
 		openssl rand -hex 24
 	}
 
-	cat > "$ENV_FILE" <<EOF
+	token=$(cat "$HOME/rw-bot-token" 2>/dev/null || true)
+
+	(
+		umask 077
+		cat > "$ENV_FILE" <<EOF
 DOMAIN=rw-bot.dazinho.ru
 ADMIN_DOMAIN=admin-rw-bot.dazinho.ru
-BOT_TOKEN=
+BOT_TOKEN=$token
 BOT_USERNAME=id1435073060_bot
 POSTGRES_PASSWORD=$(secret)
 INTERNAL_API_TOKEN=$(secret)
 WEBHOOK_SECRET=$(secret)
 CONTENT_REFRESH_SECONDS=300
 SUPPORT_CHAT_ENABLED=true
-RERANK_DEPTH=10
+# Сервер общий с голосовым сервисом: реранкер занял бы почти всю свободную память
+RERANK_DEPTH=0
 LOG_LEVEL=info
 EOF
-	chmod 600 "$ENV_FILE"
-	echo "Создан $ENV_FILE — впишите BOT_TOKEN"
+	)
+
+	if [ -n "$token" ]; then
+		echo "Создан $ENV_FILE, токен взят из ~/rw-bot-token"
+	else
+		echo "Создан $ENV_FILE — впишите BOT_TOKEN"
+	fi
 else
 	echo "$ENV_FILE уже есть, не трогаю"
 fi
