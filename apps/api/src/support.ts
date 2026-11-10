@@ -6,7 +6,7 @@ import path from 'node:path';
 import { and, asc, count, desc, eq, gte, inArray, lt, min, ne, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
-import { isSupportCancel, ROOT_CODE, supportOpenedText } from '@rw/core';
+import { isSupportCancel, OPERATOR_CODE, ROOT_CODE, supportOpenedText } from '@rw/core';
 import type { AdminUser, DialogUser, SupportAttachment, SupportHistoryEntry, SupportInboundRequest, SupportInboundResult, SupportTicketDetail, SupportReason, SupportTicketSummary, SupportCounts, SupportStatus, SupportTab } from '@rw/core';
 import { admins, contentNodes, db, dialogEvents, sessions, subscribers, supportMessages, supportTickets } from '@rw/db';
 import { errorMessage } from '@rw/runtime';
@@ -54,7 +54,7 @@ export const ticketReason = (events: { type: string; data: Record<string, unknow
 	const misses = events.filter(event => event.type === 'unrecognized').length;
 	const [last] = events;
 
-	if (last?.type === 'clarify' && 'handoff' in last.data) {
+	if (last?.type === 'clarify' && last.data.handoff === OPERATOR_CODE) {
 		return { reason: 'noOption', misses };
 	}
 

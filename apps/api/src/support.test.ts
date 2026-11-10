@@ -13,6 +13,10 @@ describe('ticketReason', () => {
 		expect(ticketReason([event('menu'), event('unrecognized'), event('answer'), event('unrecognized')])).toEqual({ reason: 'unrecognized', misses: 2 });
 	});
 
+	it('does not blame the options when the passenger picked the operator among them', () => {
+		expect(ticketReason([event('clarify', { handoff: 'support' })])).toEqual({ reason: 'asked', misses: 0 });
+	});
+
 	it('treats a clarification without the handoff item as a plain request', () => {
 		expect(ticketReason([event('clarify')])).toEqual({ reason: 'asked', misses: 0 });
 	});

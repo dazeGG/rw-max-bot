@@ -49,6 +49,7 @@ export type SettingKey =
 	| 'text.askMore'
 	| 'text.goodbye'
 	| 'text.handoff'
+	| 'text.handoffOperator'
 	| 'search.handoff'
 	| 'text.supportQueued'
 	| 'text.supportOffHours'
@@ -69,6 +70,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	'text.goodbye': 'Спасибо за обращение! Если появятся вопросы, пишите.',
 	// Последний пункт каждого уточнения поиска и код раздела, куда он ведёт; пустой код — пункта нет
 	'text.handoff': 'Нет подходящего варианта — служба поддержки',
+	// Тот же пункт при включенном чате поддержки: ведет сразу к оператору, раздел search.handoff не нужен
+	'text.handoffOperator': 'Нет подходящего варианта — написать оператору',
 	'search.handoff': 'support',
 	// Чат поддержки. {next} — когда ответят: «завтра с 8:00»
 	'text.supportQueued': 'Передал Ваше обращение в службу поддержки. Напишите свой вопрос, оператор скоро ответит.\n\nЧтобы вернуться к боту, напишите «отмена».',

@@ -10,6 +10,7 @@ export const SETTING_LABELS: Record<SettingKey, string> = {
 	'text.askMore': 'Пассажир хочет спросить ещё',
 	'text.goodbye': 'Прощание',
 	'text.handoff': 'Пункт «Нет подходящего варианта»',
+	'text.handoffOperator': 'Пункт «Нет подходящего варианта» при включенном чате',
 	'search.handoff': 'Куда ведет пункт «Нет подходящего варианта»',
 	'text.supportQueued': 'Пассажира передали в поддержку',
 	'text.supportOffHours': 'Поддержка сейчас не работает',

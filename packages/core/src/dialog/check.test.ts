@@ -34,6 +34,11 @@ const tree = new ContentTree([
 	node(4, 1, 'support', 'Служба поддержки'),
 ], { 'text.handoff': 'Нет подходящего варианта', 'search.handoff': 'support' } as never);
 
+const withOperator = new ContentTree([
+	...tree.all().map(item => ({ ...item })),
+	node(5, 4, 'operator', 'Написать оператору'),
+], { 'text.handoff': 'Нет подходящего варианта', 'text.handoffOperator': 'Написать оператору вместо вариантов', 'search.handoff': 'support' } as never);
+
 const scored = (scores: Record<string, number>): DialogSearch => ({
 	rank: vi.fn(async (_tree: ContentTree, nodes: ContentNode[]) => nodes
 		.filter(item => item.code in scores)
@@ -55,6 +60,19 @@ describe('проверка поиска', () => {
 			kind: 'clarify',
 			options: [{ id: 2, title: 'Возврат билета' }, { id: 3, title: 'Купить билет' }],
 			handoff: 'Нет подходящего варианта',
+		});
+	});
+
+	it('при включенном чате последний пункт уточнения ведет к оператору', async () => {
+		const result = await checkSearch(() => withOperator, scored({ refund: 0.9, buy: 0.89 }), DEFAULT_SEARCH_POLICY, 'билет');
+
+		expect(result).toMatchObject({ kind: 'clarify', handoff: 'Написать оператору вместо вариантов' });
+	});
+
+	it('уверенный пункт оператора показан как ответ: обращение открылось бы сразу', async () => {
+		expect(await checkSearch(() => withOperator, scored({ operator: 0.97 }), DEFAULT_SEARCH_POLICY, 'позовите оператора')).toEqual({
+			kind: 'answer',
+			node: { id: 5, title: 'Написать оператору' },
 		});
 	});
 

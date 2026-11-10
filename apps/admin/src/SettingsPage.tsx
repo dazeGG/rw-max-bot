@@ -132,6 +132,11 @@ const TextsForm = ({ settings, scroller, onSaved, onRefresh }: TextsFormProps) =
 						<div className="muted">Если раздел выключен, пункта тоже не будет.</div>
 						{handoffLost && <Alert type="warning" title="Раздел, куда ведет этот пункт, не найден: сейчас пункта нет. Выберите другой раздел." />}
 					</Row>
+					<Row label={SETTING_LABELS['text.handoffOperator']} hint="Когда чат поддержки включён, последний пункт уточнения ведёт сразу к оператору.">
+						<Form.Item name="text.handoffOperator" rules={[{ required: true, whitespace: true, message: 'Введите название пункта' }]}>
+							<Input maxLength={200} />
+						</Form.Item>
+					</Row>
 				</Card>
 
 				<Card id="support" title={GROUPS[2].title}>

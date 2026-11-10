@@ -7,6 +7,7 @@ import type { ContentTree } from '../content/tree';
 import { DialogEngine } from './engine';
 import { MemorySessionStore } from './memory-sessions';
 import type { DialogSearch, SearchPolicy } from './search';
+import { OPERATOR_CODE } from './support';
 
 const CHECK_USER = { id: 0 };
 
@@ -26,11 +27,19 @@ export const checkSearch = async (getTree: () => ContentTree, search: DialogSear
 		return node ? { kind: 'answer', node } : { kind: 'none' };
 	}
 
+	// Поиск открыл бы обращение сразу
+	case 'operator': {
+		const node = byCode(OPERATOR_CODE);
+		return node ? { kind: 'answer', node } : { kind: 'none' };
+	}
+
 	case 'clarify':
 		return {
 			kind: 'clarify',
 			options: (event.details.suggested ?? []).map(byCode).filter(node => node !== null),
-			handoff: event.details.handoff ? tree.settings['text.handoff'] : null,
+			handoff: event.details.handoff
+				? tree.settings[event.details.handoff === OPERATOR_CODE ? 'text.handoffOperator' : 'text.handoff']
+				: null,
 		};
 
 	case 'unrecognized':

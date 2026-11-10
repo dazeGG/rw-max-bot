@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 import { flattenSeed, SEED_SETTINGS } from '../content/seed-data';
@@ -12,6 +12,8 @@ import type { UnrecognizedEvent } from './types';
 
 const tree = new ContentTree(flattenSeed(), SEED_SETTINGS);
 const user = { id: 42 };
+// Чат поддержки выключен: бот вырезает пункт оператора из контента (apps/bot/src/content-cache.ts)
+const withoutOperator = new ContentTree(flattenSeed().filter(item => item.code !== 'operator'), SEED_SETTINGS);
 const node = (code: string) => tree.getByCode(code)!;
 const candidates = (...items: Array<[string, number]>): Candidate[] => items.map(([code, score]) => ({ node: node(code), score }));
 const options = (text: string) => text.split('\n').filter(line => /^\d+\. /.test(line)).map(line => line.replace(/^\d+\. /, ''));
@@ -101,23 +103,25 @@ describe('контракт семантического поиска', () => {
 
 		expect(event).toMatchObject({ type: 'clarify', nodeCode: 'root', details: { suggested: ['support', 'question'] } });
 		expect(replies[0].text).toContain(SEED_SETTINGS['text.didYouMean']);
-		expect((await sessions.get(user.id)).choices).toEqual([node('support').id, node('question').id]);
+		expect((await sessions.get(user.id)).choices).toEqual([node('support').id, node('question').id, node('operator').id]);
 	});
 
-	it('последний пункт уточнения ведёт в раздел из настройки search.handoff', async () => {
+	it('последний пункт уточнения ведёт в раздел из настройки search.handoff, когда чата поддержки нет', async () => {
+		const quiet = new DialogEngine(() => withoutOperator, sessions, { rank });
 		rank.mockResolvedValue(candidates(['buy', 0.9], ['tariffs', 0.895]));
-		const { event, replies } = await say('сколько стоит');
+		const { event, replies } = await quiet.process(user, { type: 'text', text: 'сколько стоит' });
 
 		expect(event.details).toMatchObject({ suggested: ['buy', 'tariffs'], handoff: 'support' });
 		expect(options(replies[0].text!)).toEqual(['Купить билет', 'Тарифы', SEED_SETTINGS['text.handoff']]);
-		expect((await say('3')).event).toMatchObject({ type: 'option', nodeCode: 'support' });
+		expect((await quiet.process(user, { type: 'text', text: '3' })).event).toMatchObject({ type: 'option', nodeCode: 'support' });
 	});
 
 	it('пункта поддержки нет, если она уже среди вариантов или настройка пустая', async () => {
+		const noOperator = new DialogEngine(() => withoutOperator, sessions, { rank });
 		rank.mockResolvedValue(candidates(['support', 0.9], ['question', 0.895]));
-		expect((await say('помогите')).event.details.handoff).toBeUndefined();
+		expect((await noOperator.process(user, { type: 'text', text: 'помогите' })).event.details.handoff).toBeUndefined();
 
-		const quiet = new ContentTree(flattenSeed(), { ...SEED_SETTINGS, 'search.handoff': '' });
+		const quiet = new ContentTree(flattenSeed().filter(item => item.code !== 'operator'), { ...SEED_SETTINGS, 'search.handoff': '' });
 		const local = new DialogEngine(() => quiet, sessions, { rank });
 		rank.mockResolvedValue(candidates(['buy', 0.9], ['tariffs', 0.895]));
 		const { event, replies } = await local.process(user, { type: 'text', text: 'сколько стоит' });
@@ -438,12 +442,104 @@ describe('вход в чат поддержки', () => {
 		expect((await say(String(number))).event.type).toBe('operator');
 	});
 
-	it('поиск не предлагает пункт оператора как ответ', async () => {
+	it('поиск находит пункт оператора как обычный раздел, но не его переход', async () => {
 		await say('вопрос');
 		const codes = rank.mock.calls[0][1].map(item => item.code);
 
-		expect(codes).not.toContain('operator');
+		expect(codes).toContain('operator');
 		expect(codes).not.toContain('operator-menu');
+	});
+});
+
+const quietEngine = () => new DialogEngine(() => withoutOperator, sessions, { rank });
+
+describe('просьба позвать оператора', () => {
+	it('уверенно найденный пункт оператора сразу открывает обращение', async () => {
+		rank.mockResolvedValue(candidates(['operator', 0.97], ['support', 0.3]));
+		const { event, replies } = await say('позовите оператора');
+
+		expect(event).toMatchObject({ type: 'operator', details: { candidates: [{ code: 'operator', score: 0.97 }, { code: 'support', score: 0.3 }] } });
+		expect(replies).toEqual([]);
+		expect(await currentCode()).toBe('root');
+	});
+
+	it('сомнительный пункт оператора участвует в уточнении, номер ведет к оператору', async () => {
+		rank.mockResolvedValue(candidates(['operator', 0.9], ['buy', 0.895]));
+		const { event, replies } = await say('нужна помощь человека');
+
+		expect(event).toMatchObject({ type: 'clarify', details: { suggested: ['operator', 'buy'], handoff: 'support' } });
+		expect(options(replies[0].text!)).toEqual(['Написать оператору (Служба поддержки пассажиров)', 'Купить билет', SEED_SETTINGS['text.handoff']]);
+		expect((await say('1')).event.type).toBe('operator');
+	});
+
+	it('без чата поддержки пункт оператора из поиска исчезает', async () => {
+		await quietEngine().process(user, { type: 'text', text: 'вопрос' });
+
+		expect(rank.mock.calls[0][1].map(item => item.code)).not.toContain('operator');
+	});
+});
+
+describe('последний пункт уточнения при включенном чате', () => {
+	it('ведет сразу к оператору и называется по настройке text.handoffOperator', async () => {
+		rank.mockResolvedValue(candidates(['buy', 0.9], ['tariffs', 0.895]));
+		const { event, replies } = await say('сколько стоит');
+
+		expect(event.details).toMatchObject({ suggested: ['buy', 'tariffs'], handoff: 'operator' });
+		expect(options(replies[0].text!)).toEqual(['Купить билет', 'Тарифы', SEED_SETTINGS['text.handoffOperator']]);
+		expect((await say('3')).event.type).toBe('operator');
+	});
+
+	it('при выключенном чате остается прежний пункт из search.handoff', async () => {
+		rank.mockResolvedValue(candidates(['buy', 0.9], ['tariffs', 0.895]));
+		const { event, replies } = await quietEngine().process(user, { type: 'text', text: 'сколько стоит' });
+
+		expect(event.details).toMatchObject({ handoff: 'support' });
+		expect(options(replies[0].text!)).toEqual(['Купить билет', 'Тарифы', SEED_SETTINGS['text.handoff']]);
+		expect((await say('3')).event).toMatchObject({ type: 'option', nodeCode: 'support' });
+	});
+});
+
+describe('бот дважды подряд не понял', () => {
+	afterEach(() => vi.useRealTimers());
+
+	it('первая подсказка прежняя, во второй первым идет «Написать оператору»', async () => {
+		const first = await say('аааа');
+		const second = await say('бббб');
+		const root = options(first.replies[0].text);
+
+		expect(first.event.type).toBe('unrecognized');
+		expect(options(second.replies[0].text)[0]).toBe('Написать оператору');
+		expect(options(second.replies[0].text).slice(1)).toEqual(root.filter(title => title !== 'Написать оператору'));
+		// Обращение само не открывается: пассажир выбирает
+		expect(second.event.type).toBe('unrecognized');
+		expect((await say('1')).event.type).toBe('operator');
+	});
+
+	it('понятое сообщение сбрасывает счетчик', async () => {
+		await say('аааа');
+		rank.mockResolvedValueOnce(candidates(['buy', 0.97]));
+		await say('купить билет');
+		const third = await say('бббб');
+
+		expect(options(third.replies[0].text)[0]).toBe('Купить билет');
+	});
+
+	it('счетчик сбрасывается, когда сессия истекла', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		await say('аааа');
+		vi.setSystemTime(Date.now() + 31 * 60 * 1000);
+		const { replies } = await say('бббб');
+
+		expect(options(replies[0].text)[0]).not.toBe('Написать оператору');
+	});
+
+	it('без чата поддержки подсказка не меняется', async () => {
+		const quiet = quietEngine();
+		const first = await quiet.process(user, { type: 'text', text: 'аааа' });
+		const second = await quiet.process(user, { type: 'text', text: 'бббб' });
+
+		expect(options(second.replies[0].text)).toEqual(options(first.replies[0].text));
+		expect(options(second.replies[0].text)).not.toContain('Написать оператору');
 	});
 });
 

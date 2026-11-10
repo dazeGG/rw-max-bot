@@ -156,32 +156,43 @@ export class DialogEngine {
 
 		switch (choice.kind) {
 		case 'node':
+			// Поиск уверенно нашел пункт оператора: обращение открывается сразу, без промежуточного раздела
+			if (tree.resolve(choice.node).code === OPERATOR_CODE) {
+				return this.toOperator(user, tree, done, { candidates });
+			}
+
 			return done('answer', tree.resolve(choice.node), [...greetingReplies, ...await this.open(user, tree, choice.node)], { candidates });
 
 		case 'ambiguous': {
 			// Search can miss the right section entirely: the last option always leads to people
 			const handoff = this.handoff(tree, choice.candidates);
 			const text = withOptions(tree, tree.settings['text.didYouMean'], choice.candidates, true) +
-				(handoff ? `\n${choice.candidates.length + 1}. ${tree.settings['text.handoff']}` : '');
-			await this.sessions.set(user.id, { nodeId: current.id, choices: [...choice.candidates, ...handoff ? [handoff] : []].map(node => node.id) });
+				(handoff ? `\n${choice.candidates.length + 1}. ${handoff.label}` : '');
+			await this.sessions.set(user.id, { nodeId: current.id, choices: [...choice.candidates, ...handoff ? [handoff.node] : []].map(node => node.id) });
 			return done('clarify', current, [...greetingReplies, { text }], {
 				candidates,
 				suggested: choice.candidates.map(node => node.code),
-				...handoff ? { handoff: handoff.code } : {},
+				...handoff ? { handoff: handoff.node.code } : {},
 			});
 		}
 
 		case 'none':
 			await this.events.onUnrecognized?.({ userId: user.id, text, nodeId: current.id });
-			await this.sessions.set(user.id, { nodeId: tree.root.id, choices: tree.visibleChildren(tree.root).map(node => node.id) });
-			return done('unrecognized', current, [{ text: withOptions(tree, tree.settings['text.fallback'], tree.visibleChildren(tree.root)) }], { candidates });
+			// Второй раз подряд не поняли: первым пунктом предлагаем оператора, выбирает пассажир.
+			// Счетчик живет в сессии, любое другое сообщение записывает сессию без него и тем самым сбрасывает
+			const misses = (session.misses ?? 0) + 1;
+			const operator = misses >= 2 ? tree.getByCode(OPERATOR_CODE) : undefined;
+			// Пункт оператора может уже быть в главном меню: тогда он просто переезжает на первое место
+			const options = [...operator ? [operator] : [], ...tree.visibleChildren(tree.root).filter(node => !operator || tree.resolve(node).id !== operator.id)];
+			await this.sessions.set(user.id, { nodeId: tree.root.id, choices: options.map(node => node.id), misses });
+			return done('unrecognized', current, [{ text: withOptions(tree, tree.settings['text.fallback'], options) }], { candidates });
 		}
 	}
 
 	// Текст ответа и само обращение — дело транспорта: движок не знает ни об очереди, ни о часах работы
-	private async toOperator (user: DialogUser, tree: ContentTree, done: (type: DialogEventType, node: ContentNode, replies: Reply[]) => DialogResult): Promise<DialogResult> {
+	private async toOperator (user: DialogUser, tree: ContentTree, done: (type: DialogEventType, node: ContentNode, replies: Reply[], extra?: DialogEventDetails) => DialogResult, extra: DialogEventDetails = {}): Promise<DialogResult> {
 		await this.sessions.set(user.id, { nodeId: tree.root.id, choices: [] });
-		return done('operator', tree.root, []);
+		return done('operator', tree.root, [], extra);
 	}
 
 	private result (type: DialogEventType, node: ContentNode, text: string | null, replies: Reply[], details: DialogEventDetails = {}): DialogResult {
@@ -190,8 +201,7 @@ export class DialogEngine {
 
 	// Navigation position is not search context. Only explicitly displayed options can be selected.
 	private async choose (tree: ContentTree, session: Session, text: string): Promise<{ choice: Choice; ranked: Candidate[]; }> {
-		// Пункт оператора поиск не находит: в очередь попадают только те, кто выбрал его сознательно
-		const knowledge = tree.all().filter(node => node.id !== tree.root.id && node.code !== OPERATOR_CODE &&
+		const knowledge = tree.all().filter(node => node.id !== tree.root.id &&
 			(node.type === 'section' || (node.type === 'link' && Boolean(node.text?.trim()))));
 		const run = async (nodes: ContentNode[], mode?: 'options') => {
 			const allowed = new Set(nodes.map(node => node.id));
@@ -306,11 +316,19 @@ export class DialogEngine {
 		return nodeReplies(tree, node);
 	}
 
-	// Section named by the search.handoff setting, unless it is missing, disabled or already offered
-	private handoff (tree: ContentTree, offered: ContentNode[]): ContentNode | undefined {
+	// Последний пункт уточнения. Пока чат поддержки включен (пункт оператора есть в дереве), он ведет к оператору,
+	// если оператор еще не среди вариантов. Иначе — раздел из search.handoff, если он не выключен и не предложен
+	private handoff (tree: ContentTree, offered: ContentNode[]): { node: ContentNode; label: string; } | undefined {
+		const isOffered = (node: ContentNode) => offered.some(option => tree.resolve(option).id === tree.resolve(node).id);
+		const operator = tree.getByCode(OPERATOR_CODE);
+
+		if (operator && !isOffered(operator)) {
+			return { node: operator, label: tree.settings['text.handoffOperator'] };
+		}
+
 		const code = tree.settings['search.handoff']?.trim();
 		const node = code ? tree.getByCode(code) : undefined;
-		return node && node.id !== tree.root.id && !offered.some(option => tree.resolve(option).id === tree.resolve(node).id) ? node : undefined;
+		return node && node.id !== tree.root.id && !isOffered(node) ? { node, label: tree.settings['text.handoff'] } : undefined;
 	}
 
 	// Only the exact last displayed list is selectable. Never resurrect an unseen parent menu.
