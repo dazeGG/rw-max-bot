@@ -88,6 +88,17 @@ describe('сообщение пассажиру', () => {
 	});
 });
 
+describe('напоминание при повторном старте в очереди', () => {
+	// API отвечает на повторный старт тем же supportOpenedText, что и при открытии обращения
+	it('ночью не обещает скорого ответа', () => {
+		const night = supportOpenedText(settings(), yakutsk(3, 2));
+
+		expect(night).not.toBe(DEFAULT_SETTINGS['text.supportQueued']);
+		expect(night).toContain('Ответим сегодня с 8:00');
+		expect(night).toContain('напишите «отмена»');
+	});
+});
+
 describe('отмена обращения', () => {
 	it.each(['отмена', 'Отмена!', 'меню', 'Главное меню', ' ОТМЕНИТЬ '])('%s', text => {
 		expect(isSupportCancel(text)).toBe(true);

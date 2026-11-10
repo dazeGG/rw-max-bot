@@ -132,7 +132,7 @@ export const receiveMessage = async ({ userId, text, mid, attachments, start }: 
 	});
 
 	if (outcome.action === 'queued') {
-		return { action: 'queued', text: (await loadSettings(db))['text.supportQueued'] };
+		return { action: 'queued', text: supportOpenedText(await loadSettings(db), new Date()) };
 	}
 
 	if (outcome.action === 'cancelled') {
