@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 
-import { DialogEngine, MemorySessionStore } from '@rw/core';
+import { DialogEngine, MemorySessionStore, OPERATOR_CODE, SEED_SETTINGS } from '@rw/core';
 import type { Candidate, ContentNode, ContentTree, DialogResult, DialogSearch, SearchPolicy } from '@rw/core';
 import { repoPath } from '@rw/runtime';
 
@@ -45,7 +45,8 @@ const isHelpful = (result: DialogResult, step: Step, row: { outcome: Outcome; pa
 	if (result.event.type !== 'clarify') {
 		return false;
 	}
-	const handoff = result.event.details.handoff;
+	// Пункт оператора ведет к людям так же, как раздел search.handoff, поэтому эталоны для него общие
+	const handoff = result.event.details.handoff === OPERATOR_CODE ? SEED_SETTINGS['search.handoff'] : result.event.details.handoff;
 	return row.actual.some(code => step.expected.includes(code) || step.clarification?.includes(code)) ||
 		(handoff !== undefined && (step.expected.includes(handoff) || step.expected.includes('unrecognized')));
 };
