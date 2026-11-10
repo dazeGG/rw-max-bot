@@ -532,7 +532,7 @@ const notifyClosed = async (ticketId: number, userId: number) => {
 
 		// Старые номера вариантов больше ничего не значат: следующий вопрос бот поймет с начала
 		await db.insert(sessions).values({ userId, nodeId: root?.id ?? null, choices: [] })
-			.onConflictDoUpdate({ target: sessions.userId, set: { nodeId: root?.id ?? null, choices: [], updatedAt: sql`now()` } });
+			.onConflictDoUpdate({ target: sessions.userId, set: { nodeId: root?.id ?? null, choices: [], misses: 0, updatedAt: sql`now()` } });
 
 		await inOrder(ticketId, async () => {
 			const result = await sendToPassenger(config.botControlUrl, config.internalToken, { userId, text: settings['text.supportClosed'], attachments: [], notice: true });

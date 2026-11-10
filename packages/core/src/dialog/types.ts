@@ -21,6 +21,8 @@ export type Session = {
 	nodeId: number | null;
 	// Exact last displayed options, not an inherited topic or a parent's unseen menu.
 	choices?: number[];
+	// Сколько раз подряд бот не понял пассажира. Любое понятое сообщение записывает сессию без поля, то есть сбрасывает его
+	misses?: number;
 	// Когда сессия записана в последний раз. Ставит хранилище, движок по ней решает, не устарела ли сессия
 	updatedAt?: string;
 };
@@ -62,7 +64,7 @@ export type DialogEventDetails = {
 	// Лучшие кандидаты поиска по тексту с баллами и варианты, предложенные в «Уточните, пожалуйста…»
 	candidates?: Array<{ code: string; score: number; }>;
 	suggested?: string[];
-	// Раздел из последнего пункта уточнения «Нет подходящего варианта» (настройка search.handoff)
+	// Раздел из последнего пункта уточнения «Нет подходящего варианта» (настройка search.handoff или пункт оператора)
 	handoff?: string;
 };
 

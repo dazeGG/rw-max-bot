@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "misses" integer DEFAULT 0 NOT NULL;

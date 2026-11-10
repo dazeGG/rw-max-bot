@@ -55,6 +55,8 @@ export const sessions = pgTable('sessions', {
 	userId: bigint('user_id', { mode: 'number' }).primaryKey(),
 	nodeId: integer('node_id'),
 	choices: integer('choices').array().notNull().default(sql`'{}'::integer[]`),
+	// Сколько сообщений подряд бот не понял
+	misses: integer('misses').notNull().default(0),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

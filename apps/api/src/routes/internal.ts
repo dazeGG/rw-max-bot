@@ -33,6 +33,7 @@ const sessionBody = {
 	properties: {
 		nodeId: { type: ['integer', 'null'] },
 		choices: { type: 'array', items: { type: 'integer' } },
+		misses: { type: 'integer', minimum: 0 },
 	},
 } as const;
 
