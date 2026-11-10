@@ -40,3 +40,23 @@ dc ps
 dc logs -f bot
 dc exec api node --import tsx src/cli/create-admin.ts admin   # создать суперадмина или сбросить ему пароль
 ```
+
+## Как убрать стенд
+
+Стенд на сервере войсрума временный. Когда он больше не нужен:
+
+```bash
+ssh daze@193.233.91.146
+# 1. Наши сайты из Caddy войсрума: удалить файл, проверить конфиг и только потом перечитать
+rm ~/VoiceRoom/config/caddy/sites.d/rw-max-bot.caddy
+docker exec voiceroom-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec voiceroom-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+# 2. Контейнеры, тома (база, модели, загрузки) и сеть стенда
+cd ~/rw-max-bot/src/deploy
+docker compose -f docker-compose.yml -f dev/docker-compose.yml --env-file ~/rw-max-bot/.env down -v
+# 3. Образы и файлы
+docker rmi rw-max-bot-api rw-max-bot-bot rw-max-bot-web
+rm -rf ~/rw-max-bot ~/rw-bot-token
+```
+
+Подключение `sites.d` в самом войсруме остается: без файлов оно ничего не делает.
