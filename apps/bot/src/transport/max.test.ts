@@ -188,6 +188,14 @@ describe('MAX support routing', () => {
 		expect(process).toHaveBeenCalledWith(expect.objectContaining({ id: 42 }), { type: 'text', text: 'меню' });
 	});
 
+	it('only reminds how to cancel when the bot is restarted while the ticket waits in the queue', async () => {
+		const { engine, process } = engineWith();
+		await run(engine, transport('queue', { action: 'queued', text: 'Обращение ждет.' }));
+
+		expect(sendMessageToUser.mock.calls.map(call => (call as unknown[])[1])).toEqual(['Обращение ждет.']);
+		expect(process).not.toHaveBeenCalled();
+	});
+
 	it('falls back to the bot when the ticket closed in the meantime', async () => {
 		const { engine, process } = engineWith();
 		await run(engine, transport('active', { action: 'none' }));

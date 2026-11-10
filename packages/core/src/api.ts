@@ -244,10 +244,11 @@ export type SupportInboundRequest = {
 	start: boolean;
 };
 
-// none — обращения нет, отвечает бот; stored — передано сотрудникам; cancelled — пассажир передумал, снова отвечает бот
+// none — обращения нет, отвечает бот; stored — передано сотрудникам; cancelled — пассажир передумал, снова отвечает бот;
+// queued — бот запущен заново, пока обращение в очереди: оно остается, бот напоминает, как его отменить
 export type SupportInboundResult =
 	| { action: 'none' | 'stored'; }
-	| { action: 'cancelled'; text: string; };
+	| { action: 'cancelled' | 'queued'; text: string; };
 
 export type SupportSendRequest = {
 	userId: number;

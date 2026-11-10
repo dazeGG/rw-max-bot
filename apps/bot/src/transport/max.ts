@@ -282,6 +282,11 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 			return { type: 'text', text: 'меню' };
 		}
 
+		if (result.action === 'queued') {
+			await bot.api.sendMessageToUser(user.id, result.text, { format: 'html' });
+			return null;
+		}
+
 		return result.action === 'none' ? input : null;
 	};
 

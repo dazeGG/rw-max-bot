@@ -102,7 +102,7 @@ export const receiveMessage = async ({ userId, text, mid, attachments, start }: 
 			return { action: 'none' as const };
 		}
 
-		if (ticket.status === 'queue' && attachments.length === 0 && (start || isSupportCancel(text))) {
+		if (ticket.status === 'queue' && attachments.length === 0 && isSupportCancel(text)) {
 			await tx.update(supportTickets)
 				.set({ status: 'closed', closedAt: new Date(), closeReason: 'passenger' })
 				.where(eq(supportTickets.id, ticket.id));
@@ -111,9 +111,9 @@ export const receiveMessage = async ({ userId, text, mid, attachments, start }: 
 			return { action: 'cancelled' as const, ticket };
 		}
 
-		// Перезапуск бота, пока обращение в работе: переписка продолжается, писать нечего
+		// Перезапуск бота не отменяет обращение: в очереди напоминаем, как его отменить, в работе писать нечего
 		if (start) {
-			return { action: 'stored' as const };
+			return ticket.status === 'queue' && attachments.length === 0 ? { action: 'queued' as const } : { action: 'stored' as const };
 		}
 
 		// MAX может прислать одно и то же обновление повторно
@@ -130,6 +130,10 @@ export const receiveMessage = async ({ userId, text, mid, attachments, start }: 
 
 		return { action: 'stored' as const, ticket: message ? ticket : undefined };
 	});
+
+	if (outcome.action === 'queued') {
+		return { action: 'queued', text: (await loadSettings(db))['text.supportQueued'] };
+	}
 
 	if (outcome.action === 'cancelled') {
 		publish({ ticketId: outcome.ticket.id, kind: 'changed', assigneeId: null });
