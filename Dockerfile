@@ -3,8 +3,6 @@
 
 FROM node:24-slim AS base
 RUN npm install -g pnpm@12.8.1
-# Генератор картинок (puppeteer) на сервере не нужен
-ENV PUPPETEER_SKIP_DOWNLOAD=1
 WORKDIR /app
 
 # Сначала только манифесты: зависимости пересобираются, лишь когда они изменились
