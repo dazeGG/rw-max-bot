@@ -1,4 +1,4 @@
-# Сервер: PostgreSQL, API, бот и Caddy. Наружу открыты только 80 и 443 (Caddy).
+# Сервер: PostgreSQL, API, бот, Caddy и DNS для сертификата админки. Наружу открыты 80 и 443 (Caddy) и 53 (DNS).
 # Переменные — из /opt/rw-max-bot/.env (шаблон: deploy/.env.example), см. deploy/README.md
 
 name: rw-max-bot
@@ -99,9 +99,28 @@ services:
       - '443:443/udp'
     environment:
       DOMAIN: ${DOMAIN:?}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?}
+      ACME_TSIG_SECRET: ${ACME_TSIG_SECRET:?}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+
+  # Проверка сертификата админки: только зона _acme-challenge, см. deploy/README.md
+  dns:
+    build:
+      context: ..
+      target: dns
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      DOMAIN: ${DOMAIN:?}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?}
+      ACME_TSIG_SECRET: ${ACME_TSIG_SECRET:?}
+    mem_limit: 128m
+    # Только адрес бота: 53-й порт на всех адресах занят системным resolver
+    ports:
+      - '${ACME_DNS_BIND_IP:?}:53:53/udp'
+      - '${ACME_DNS_BIND_IP:?}:53:53/tcp'
 
 volumes:
   pgdata:

@@ -39,5 +39,16 @@ FROM server AS bot
 WORKDIR /app/apps/bot
 CMD ["node", "--import", "tsx", "src/index.ts"]
 
-FROM caddy:2.10-alpine AS web
+# Caddy с плагином DNS-проверки сертификата. В один поток: на сервере нет подкачки и свободно около 1 ГБ
+FROM caddy:2.10.2-builder-alpine AS caddy-build
+ENV GOMAXPROCS=1 GOFLAGS=-p=1
+RUN xcaddy build v2.10.2 --with github.com/caddy-dns/rfc2136@v1.0.0 --output /caddy
+
+FROM caddy:2.10.2-alpine AS web
+COPY --from=caddy-build /caddy /usr/bin/caddy
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
+
+FROM cznic/knot:v3.5.10 AS dns
+COPY deploy/dns/start.sh /start.sh
+ENTRYPOINT []
+CMD ["sh", "/start.sh"]

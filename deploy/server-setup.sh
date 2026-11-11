@@ -3,7 +3,7 @@
 #
 #   ssh root@<сервер> 'bash -s' < deploy/server-setup.sh
 #
-# Ставит Docker, открывает в ufw 80 и 443 (выпуск сертификата и HTTPS) и создает
+# Ставит Docker, открывает в ufw 80, 443 (выпуск сертификата и HTTPS) и 53 (проверка сертификата админки) и создает
 # /opt/rw-max-bot/.env со сгенерированными секретами. BOT_TOKEN вписывается вручную.
 
 set -euo pipefail
@@ -29,11 +29,13 @@ docker --version
 docker compose version
 
 echo '== ufw'
-# Порты, опубликованные docker, ufw не фильтрует: наружу публикует только Caddy (80, 443).
+# Порты, опубликованные docker, ufw не фильтрует: наружу публикуют только Caddy (80, 443) и DNS (53).
 # Правила здесь — чтобы ufw status показывал реальную картину
 ufw allow 80/tcp comment 'http: Lets Encrypt, redirect'
 ufw allow 443/tcp comment 'https'
 ufw allow 443/udp comment 'http3'
+ufw allow 53/udp comment 'dns: admin certificate check'
+ufw allow 53/tcp comment 'dns: admin certificate check'
 ufw status
 
 echo '== .env'
@@ -47,6 +49,9 @@ if [ ! -f "$ENV_FILE" ]; then
 
 	cat > "$ENV_FILE" <<EOF
 DOMAIN=max-bot.rw-y.ru
+ADMIN_DOMAIN=max-admin.rw-y.ru
+ACME_DNS_BIND_IP=$(ip -4 -o route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')
+ACME_TSIG_SECRET=$(openssl rand -base64 32)
 BOT_TOKEN=
 POSTGRES_PASSWORD=$(secret)
 INTERNAL_API_TOKEN=$(secret)

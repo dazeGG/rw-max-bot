@@ -19,3 +19,21 @@
 		-Server
 	}
 }
+
+# Пока только сертификат, сама админка выкладывается отдельно.
+# Адрес админки закрыт контуром, поэтому проверка идет через DNS: см. deploy/README.md
+{$ADMIN_DOMAIN} {
+	tls {
+		dns rfc2136 {
+			key_name acme
+			key_alg hmac-sha256
+			key {$ACME_TSIG_SECRET}
+			server dns:53
+		}
+		# TXT-запись появляется на нашем же DNS-сервере сразу, внешний адрес проверять незачем
+		resolvers dns:53
+		propagation_timeout -1
+	}
+
+	respond 404
+}
