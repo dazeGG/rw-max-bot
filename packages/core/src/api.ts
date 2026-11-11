@@ -340,6 +340,41 @@ export type StaffMaxLinkResult =
 	| { status: 'linked'; fullName: string; }
 	| { status: 'invalid' | 'taken'; };
 
+// Код входа через MAX в ссылке на бота
+export const STAFF_LOGIN_PREFIX = 'login_';
+
+// url показывается в QR-коде, token браузер оставляет себе и опрашивает им статус
+export type MaxLoginInfo = {
+	url: string;
+	token: string;
+	expiresAt: string;
+};
+
+export type MaxLoginPollRequest = {
+	token: string;
+};
+
+export type MaxLoginPoll =
+	| { status: 'pending' | 'rejected' | 'expired'; }
+	| { status: 'done'; user: AdminUser; };
+
+export type StaffLoginOpenRequest = {
+	code: string;
+	userId: number;
+};
+
+export type StaffLoginOpenResult =
+	| { status: 'ask'; fullName: string; }
+	| { status: 'invalid' | 'unknown'; };
+
+export type StaffLoginAnswerRequest = StaffLoginOpenRequest & {
+	approve: boolean;
+};
+
+export type StaffLoginAnswerResult = {
+	status: 'approved' | 'rejected' | 'invalid' | 'unknown';
+};
+
 export type LoginRequest = {
 	login: string;
 	password: string;

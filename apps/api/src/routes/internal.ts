@@ -6,9 +6,10 @@ import { Readable } from 'node:stream';
 
 import type { FastifyPluginAsync } from 'fastify';
 
-import type { BotLeaseRequest, DialogEventRecord, DialogUser, Session, StaffMaxLinkRequest, SupportInboundRequest, UnrecognizedEvent, UploadKind } from '@rw/core';
+import type { BotLeaseRequest, DialogEventRecord, DialogUser, Session, StaffLoginAnswerRequest, StaffLoginOpenRequest, StaffMaxLinkRequest, SupportInboundRequest, UnrecognizedEvent, UploadKind } from '@rw/core';
 
 import { consumeMaxLink } from '../auth/max-link';
+import { answerStaffLogin, openStaffLogin } from '../auth/max-login';
 import type { BotLease } from '../bot-lease';
 import { config } from '../config';
 import { loadContent } from '../content';
@@ -109,6 +110,15 @@ const staffMaxLinkBody = {
 	},
 } as const;
 
+const staffLoginAnswerBody = {
+	type: 'object',
+	required: ['code', 'userId', 'approve'],
+	properties: {
+		...staffMaxLinkBody.properties,
+		approve: { type: 'boolean' },
+	},
+} as const;
+
 const leaseBody = {
 	type: 'object',
 	required: ['instanceId'],
@@ -128,6 +138,10 @@ export const internalRoutes = (lease: BotLease): FastifyPluginAsync => async app
 	app.addContentTypeParser('application/octet-stream', (_request, payload, done) => done(null, payload));
 
 	app.post<{ Body: StaffMaxLinkRequest; }>('/staff/max-link', { schema: { body: staffMaxLinkBody } }, request => consumeMaxLink(request.body));
+
+	app.post<{ Body: StaffLoginOpenRequest; }>('/staff/max-login', { schema: { body: staffMaxLinkBody } }, request => openStaffLogin(request.body));
+
+	app.post<{ Body: StaffLoginAnswerRequest; }>('/staff/max-login/answer', { schema: { body: staffLoginAnswerBody } }, request => answerStaffLogin(request.body));
 
 	app.post<{ Body: DialogUser; }>('/support/tickets', { schema: { body: subscriberBody } }, async request => ({ text: await openTicket(request.body) }));
 

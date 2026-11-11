@@ -99,6 +99,13 @@
       "when": 1794308272309,
       "tag": "0013_session_misses",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794371768819,
+      "tag": "0014_staff_max_login",
+      "breakpoints": true
     }
   ]
 }

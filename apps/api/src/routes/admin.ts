@@ -1,14 +1,15 @@
-// Запросы админки. Доступ по cookie сессии после входа по логину и паролю
+// Запросы админки. Доступ по cookie сессии после входа по паролю или через MAX
 
 import { and, eq, gt, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 
-import type { AcceptInviteRequest, ChangePasswordRequest, LoginRequest, UpdateMaxNotifyRequest } from '@rw/core';
+import type { AcceptInviteRequest, ChangePasswordRequest, LoginRequest, MaxLoginPollRequest, UpdateMaxNotifyRequest } from '@rw/core';
 import { adminInvites, adminSessions, admins, db } from '@rw/db';
 
 import { requireAdmin, requireSession } from '../auth/guards';
 import { findInvite } from '../auth/invites';
 import { issueMaxLink, maxLinkStatus } from '../auth/max-link';
+import { issueMaxLogin, pollMaxLogin } from '../auth/max-login';
 import { hashPassword, verifyPassword } from '../auth/password';
 import { MIN_PASSWORD_LENGTH } from '../auth/permissions';
 import { createSession, deleteOtherSessions, deleteSession, hashToken, SESSION_COOKIE, SESSION_TTL_SECONDS, toAdminUser } from '../auth/sessions';
@@ -56,7 +57,13 @@ const maxNotifyBody = {
 	properties: { enabled: { type: 'boolean' } },
 } as const;
 
-const INVALID_INVITE = 'Ссылка недействительна или устарела. Попросите выдать новую';
+const maxLoginPollBody = {
+	type: 'object',
+	required: ['token'],
+	properties: { token: { type: 'string', minLength: 1, maxLength: 128 } },
+} as const;
+
+const INVALID_INVITE ='Ссылка недействительна или устарела. Попросите выдать новую';
 
 const signIn = async (reply: FastifyReply, adminId: number) => {
 	reply.setCookie(SESSION_COOKIE, await createSession(adminId), {
@@ -82,6 +89,18 @@ export const adminRoutes: FastifyPluginAsync = async app => {
 		await signIn(reply, admin.id);
 
 		return toAdminUser(admin);
+	});
+
+	app.post('/auth/max-login', () => issueMaxLogin());
+
+	app.post<{ Body: MaxLoginPollRequest; }>('/auth/max-login/poll', { schema: { body: maxLoginPollBody } }, async (request, reply) => {
+		const result = await pollMaxLogin(request.body.token);
+
+		if (result.status === 'done') {
+			await signIn(reply, result.user.id);
+		}
+
+		return result;
 	});
 
 	app.post('/auth/logout', async (request, reply) => {

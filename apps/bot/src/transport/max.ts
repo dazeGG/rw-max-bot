@@ -5,9 +5,9 @@ import path from 'node:path';
 import { Bot } from '@maxhub/max-bot-api';
 import type { Context } from '@maxhub/max-bot-api';
 
-import { escapeHtml, STAFF_LINK_PREFIX } from '@rw/core';
+import { escapeHtml, STAFF_LINK_PREFIX, STAFF_LOGIN_PREFIX } from '@rw/core';
 
-import type { DialogEngine, DialogEventRecord, DialogInput, DialogResult, DialogUser, Reply, StaffMaxLinkRequest, StaffMaxLinkResult, StaffNotifyRequest, StaffNotifyResult, SupportAttachment, SupportInboundRequest, SupportInboundResult, SupportSendRequest, SupportSendResult, SupportStatus, UploadKind, UploadResult } from '@rw/core';
+import type { DialogEngine, DialogEventRecord, DialogInput, DialogResult, DialogUser, Reply, StaffLoginAnswerRequest, StaffLoginAnswerResult, StaffLoginOpenRequest, StaffLoginOpenResult, StaffMaxLinkRequest, StaffMaxLinkResult, StaffNotifyRequest, StaffNotifyResult, SupportAttachment, SupportInboundRequest, SupportInboundResult, SupportSendRequest, SupportSendResult, SupportStatus, UploadKind, UploadResult } from '@rw/core';
 import { errorMessage, repoPath } from '@rw/runtime';
 
 import { logger } from '../logger';
@@ -37,6 +37,12 @@ export type MaxBotHooks = {
 	revision?: string | null;
 	support?: SupportTransport;
 	linkStaff?: (request: StaffMaxLinkRequest) => Promise<StaffMaxLinkResult>;
+	staffLogin?: StaffLoginTransport;
+};
+
+export type StaffLoginTransport = {
+	openStaffLogin: (request: StaffLoginOpenRequest) => Promise<StaffLoginOpenResult>;
+	answerStaffLogin: (request: StaffLoginAnswerRequest) => Promise<StaffLoginAnswerResult>;
 };
 
 export type SupportTransport = {
@@ -64,13 +70,42 @@ const SUPPORT_SIGNATURE = '<b>Служба поддержки</b>';
 
 // Вложения входящего сообщения: библиотека не экспортирует их тип
 type MaxAttachment = { type: string; filename: string; payload: { url: string; }; };
-// Эти обновления бот обрабатывает как диалог, остальные только записывает в статистику
-const DIALOG_UPDATES = new Set(['message_created', 'bot_started']);
+// Эти обновления бот обрабатывает сам, остальные только записывает в статистику.
+// Кнопки есть только у входа в админку: их код в статистику попасть не должен
+const HANDLED_UPDATES = new Set(['message_created', 'bot_started', 'message_callback']);
 
 const STAFF_LINK_FAILURES = {
 	invalid: 'Ссылка устарела. Получите новую в админке.',
 	taken: 'Этот профиль MAX уже привязан к другому сотруднику.',
 };
+
+const LOGIN_EXPIRED = 'Код устарел. Обновите его на странице входа.';
+const LOGIN_UNKNOWN = 'Этот профиль MAX не привязан к сотруднику. Войдите в админку по паролю и привяжите его в разделе «Профиль».';
+const LOGIN_FAILED = 'Не удалось проверить вход. Попробуйте, пожалуйста, ещё раз.';
+
+const LOGIN_OPEN_FAILURES = { invalid: LOGIN_EXPIRED, unknown: LOGIN_UNKNOWN };
+
+const LOGIN_ANSWERS = {
+	approved: 'Вход подтверждён. Вернитесь в браузер.',
+	rejected: 'Вход отменён.',
+	invalid: LOGIN_EXPIRED,
+	unknown: LOGIN_UNKNOWN,
+};
+
+// Ответ кнопки: login:yes:<код> или login:no:<код>
+const LOGIN_BUTTON = /^login:(yes|no):(.+)$/;
+
+const loginKeyboard = (code: string) => ({
+	type: 'inline_keyboard' as const,
+	payload: {
+		buttons: [[
+			{ type: 'callback' as const, text: 'Войти', payload: `login:yes:${code}` },
+			{ type: 'callback' as const, text: 'Отмена', payload: `login:no:${code}` },
+		]],
+	},
+});
+
+const staffCode = (payload: string | null | undefined, prefix: string) => payload?.startsWith(prefix) ? payload.slice(prefix.length) || null : null;
 
 const toDialogUser = (user: MaxUser): DialogUser => ({
 	id: user.user_id,
@@ -421,7 +456,7 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 	// Остальные обновления (бота остановили, сообщение изменили или удалили…) бот не обрабатывает как диалог,
 	// но записывает целиком: по ним тоже можно что-то посчитать
 	bot.use(async (ctx, next) => {
-		if (!DIALOG_UPDATES.has(ctx.updateType) && ctx.user && !ctx.user.is_bot) {
+		if (!HANDLED_UPDATES.has(ctx.updateType) && ctx.user && !ctx.user.is_bot) {
 			record({
 				userId: ctx.user.user_id,
 				type: ctx.updateType,
@@ -453,12 +488,59 @@ export const createMaxBot = (token: string, engine: DialogEngine, hooks: MaxBotH
 		await bot.api.sendMessageToUser(user.user_id, text);
 	};
 
-	bot.on('bot_started', ctx => {
-		const code = ctx.startPayload?.startsWith(STAFF_LINK_PREFIX) ? ctx.startPayload.slice(STAFF_LINK_PREFIX.length) : null;
+	// Вход в админку разбирается там же и по той же причине. Сразу не входим: ссылку могли подсунуть, поэтому спрашиваем
+	const askStaffLogin = async (user: MaxUser, code: string, login: StaffLoginTransport) => {
+		let text = LOGIN_FAILED;
+		let extra: SendExtra | undefined;
 
-		return code && hooks.linkStaff
-			? linkStaff(ctx.user, code, hooks.linkStaff)
-			: dispatch(ctx.user, { type: 'start' }, ctx.update);
+		try {
+			const result = await login.openStaffLogin({ code, userId: user.user_id });
+
+			if (result.status === 'ask') {
+				text = `Вход в админку: ${result.fullName}.\nНажмите «Войти», только если вы сами открыли QR-код на странице входа.`;
+				extra = { attachments: [loginKeyboard(code)] };
+			} else {
+				text = LOGIN_OPEN_FAILURES[result.status];
+			}
+		} catch (error) {
+			logger.error('Staff login check failed', { userId: user.user_id, error: errorMessage(error) });
+		}
+
+		await bot.api.sendMessageToUser(user.user_id, text, extra);
+	};
+
+	bot.on('bot_started', ctx => {
+		const linkCode = staffCode(ctx.startPayload, STAFF_LINK_PREFIX);
+		const loginCode = staffCode(ctx.startPayload, STAFF_LOGIN_PREFIX);
+
+		if (linkCode && hooks.linkStaff) {
+			return linkStaff(ctx.user, linkCode, hooks.linkStaff);
+		}
+
+		if (loginCode && hooks.staffLogin) {
+			return askStaffLogin(ctx.user, loginCode, hooks.staffLogin);
+		}
+
+		return dispatch(ctx.user, { type: 'start' }, ctx.update);
+	});
+
+	bot.on('message_callback', async ctx => {
+		const button = LOGIN_BUTTON.exec(ctx.callback.payload ?? '');
+
+		if (!button || !hooks.staffLogin) {
+			return;
+		}
+
+		try {
+			const { status } = await hooks.staffLogin.answerStaffLogin({ code: button[2], userId: ctx.callback.user.user_id, approve: button[1] === 'yes' });
+
+			// Сообщение заменяется ответом, кнопки исчезают
+			await ctx.answerOnCallback({ message: { text: LOGIN_ANSWERS[status], attachments: [] } });
+		} catch (error) {
+			logger.error('Staff login answer failed', { userId: ctx.callback.user.user_id, error: errorMessage(error) });
+			// Кнопки остаются: можно нажать еще раз
+			await ctx.answerOnCallback({ notification: LOGIN_FAILED });
+		}
 	});
 
 	bot.on('message_created', async ctx => {

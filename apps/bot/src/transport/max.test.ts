@@ -134,6 +134,117 @@ describe('MAX staff link', () => {
 	});
 });
 
+describe('MAX staff login', () => {
+	const dialog = () => {
+		const process = vi.fn(async () => result);
+		return { process, engine: { process } as unknown as DialogEngine };
+	};
+	const started = {
+		user: { user_id: 7, first_name: 'Иван', is_bot: false },
+		startPayload: 'login_secret-code',
+		update: { update_type: 'bot_started', timestamp: Date.now(), payload: 'login_secret-code' },
+	};
+	const pressed = (payload: string) => {
+		const answerOnCallback = vi.fn(async () => ({ success: true }));
+		return { answerOnCallback, context: { callback: { callback_id: 'cb', payload, user: { user_id: 7 } }, answerOnCallback } };
+	};
+	const transport = (answer: 'approved' | 'rejected' | 'invalid' | 'unknown' = 'approved') => ({
+		openStaffLogin: vi.fn(async () => ({ status: 'ask' as const, fullName: 'Иван Иванов' })),
+		answerStaffLogin: vi.fn(async () => ({ status: answer })),
+	});
+
+	it('asks to confirm with buttons and does not start a dialog', async () => {
+		const { process, engine } = dialog();
+		const staffLogin = transport();
+		const onEvent = vi.fn();
+		const { drain } = createMaxBot('test-token', engine, { staffLogin, onEvent });
+
+		await handlers.get('bot_started')!(started);
+		await drain();
+
+		expect(staffLogin.openStaffLogin).toHaveBeenCalledWith({ code: 'secret-code', userId: 7 });
+		expect(sendMessageToUser).toHaveBeenCalledWith(7, expect.stringContaining('Иван Иванов'), {
+			attachments: [{
+				type: 'inline_keyboard',
+				payload: {
+					buttons: [[
+						{ type: 'callback', text: 'Войти', payload: 'login:yes:secret-code' },
+						{ type: 'callback', text: 'Отмена', payload: 'login:no:secret-code' },
+					]],
+				},
+			}],
+		});
+		expect(process).not.toHaveBeenCalled();
+		expect(onEvent).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		['unknown', 'не привязан'],
+		['invalid', 'устарел'],
+	] as const)('explains %s without buttons', async (status, text) => {
+		const staffLogin = { ...transport(), openStaffLogin: vi.fn(async () => ({ status })) };
+		createMaxBot('test-token', dialog().engine, { staffLogin });
+
+		await handlers.get('bot_started')!(started);
+
+		expect(sendMessageToUser).toHaveBeenCalledWith(7, expect.stringContaining(text), undefined);
+	});
+
+	it('answers when the API is down', async () => {
+		const staffLogin = {
+			...transport(),
+			openStaffLogin: vi.fn(async () => {
+				throw new Error('API is down');
+			}),
+		};
+		createMaxBot('test-token', dialog().engine, { staffLogin });
+
+		await handlers.get('bot_started')!(started);
+
+		expect(sendMessageToUser).toHaveBeenCalledWith(7, 'Не удалось проверить вход. Попробуйте, пожалуйста, ещё раз.', undefined);
+	});
+
+	it.each([
+		['login:yes:secret-code', true, 'approved', 'Вход подтверждён. Вернитесь в браузер.'],
+		['login:no:secret-code', false, 'rejected', 'Вход отменён.'],
+	] as const)('handles %s and removes the buttons', async (payload, approve, status, text) => {
+		const staffLogin = transport(status);
+		const { context, answerOnCallback } = pressed(payload);
+		createMaxBot('test-token', dialog().engine, { staffLogin });
+
+		await handlers.get('message_callback')!(context);
+
+		expect(staffLogin.answerStaffLogin).toHaveBeenCalledWith({ code: 'secret-code', userId: 7, approve });
+		expect(answerOnCallback).toHaveBeenCalledWith({ message: { text, attachments: [] } });
+	});
+
+	it('keeps the buttons when the answer failed', async () => {
+		const staffLogin = {
+			...transport(),
+			answerStaffLogin: vi.fn(async () => {
+				throw new Error('API is down');
+			}),
+		};
+		const { context, answerOnCallback } = pressed('login:yes:secret-code');
+		createMaxBot('test-token', dialog().engine, { staffLogin });
+
+		await handlers.get('message_callback')!(context);
+
+		expect(answerOnCallback).toHaveBeenCalledWith({ notification: 'Не удалось проверить вход. Попробуйте, пожалуйста, ещё раз.' });
+	});
+
+	it('ignores other buttons', async () => {
+		const staffLogin = transport();
+		const { context, answerOnCallback } = pressed('something-else');
+		createMaxBot('test-token', dialog().engine, { staffLogin });
+
+		await handlers.get('message_callback')!(context);
+
+		expect(staffLogin.answerStaffLogin).not.toHaveBeenCalled();
+		expect(answerOnCallback).not.toHaveBeenCalled();
+	});
+});
+
 describe('MAX support routing', () => {
 	const engineWith = (answer: DialogResult = result) => {
 		const process = vi.fn(async () => answer);

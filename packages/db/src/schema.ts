@@ -96,6 +96,19 @@ export const adminMaxLinks = pgTable('admin_max_links', {
 	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 });
 
+// Запросы входа через MAX. Код из QR уходит боту, браузер опрашивает статус своим токеном; в БД лежат только хеши.
+// Сотрудник становится известен, когда подтвердит вход в боте
+export const adminMaxLogins = pgTable('admin_max_logins', {
+	codeHash: varchar('code_hash', { length: 64 }).primaryKey(),
+	pollHash: varchar('poll_hash', { length: 64 }).notNull().unique(),
+	status: varchar('status', { length: 20, enum: ['pending', 'approved', 'rejected'] }).notNull().default('pending'),
+	adminId: integer('admin_id').references(() => admins.id, { onDelete: 'cascade' }),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+}, table => [
+	check('admin_max_logins_status_check', sql`${table.status} in ('pending', 'approved', 'rejected')`),
+]);
+
 // Одноразовые ссылки для задания пароля: при добавлении сотрудника и при сбросе. У сотрудника действует только последняя
 export const adminInvites = pgTable('admin_invites', {
 	tokenHash: varchar('token_hash', { length: 64 }).primaryKey(),

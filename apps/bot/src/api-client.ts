@@ -1,4 +1,4 @@
-import type { BotLeaseRequest, ContentSnapshot, DialogEventRecord, DialogUser, Session, StaffMaxLinkRequest, StaffMaxLinkResult, SupportInboundRequest, SupportInboundResult, SupportStatus, UnrecognizedEvent, UploadKind, UploadResult } from '@rw/core';
+import type { BotLeaseRequest, ContentSnapshot, DialogEventRecord, DialogUser, Session, StaffLoginAnswerRequest, StaffLoginAnswerResult, StaffLoginOpenRequest, StaffLoginOpenResult, StaffMaxLinkRequest, StaffMaxLinkResult, SupportInboundRequest, SupportInboundResult, SupportStatus, UnrecognizedEvent, UploadKind, UploadResult } from '@rw/core';
 
 // Зависший API не должен задерживать ответ пользователю дольше этого
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -61,6 +61,14 @@ export class ApiClient {
 
 	async linkStaffMax (request: StaffMaxLinkRequest): Promise<StaffMaxLinkResult> {
 		return await (await this.request('POST', '/staff/max-link', { body: request })).json() as StaffMaxLinkResult;
+	}
+
+	async openStaffLogin (request: StaffLoginOpenRequest): Promise<StaffLoginOpenResult> {
+		return await (await this.request('POST', '/staff/max-login', { body: request })).json() as StaffLoginOpenResult;
+	}
+
+	async answerStaffLogin (request: StaffLoginAnswerRequest): Promise<StaffLoginAnswerResult> {
+		return await (await this.request('POST', '/staff/max-login/answer', { body: request })).json() as StaffLoginAnswerResult;
 	}
 
 	async openSupportTicket (user: DialogUser): Promise<string> {

@@ -16,6 +16,8 @@ import type {
 	LoginRequest,
 	MaxLinkInfo,
 	MaxLinkStatus,
+	MaxLoginInfo,
+	MaxLoginPoll,
 	MoveNodeRequest,
 	PassengerQuestion,
 	QuestionReviewRequest,
@@ -79,6 +81,8 @@ export const mediaUrl = (path: string) => `/api/content/media/${path.split('/').
 export const api = {
 	me: () => request<AdminUser>('/auth/me'),
 	login: (body: LoginRequest) => request<AdminUser>('/auth/login', { method: 'POST', body }),
+	createMaxLogin: () => request<MaxLoginInfo>('/auth/max-login', { method: 'POST' }),
+	pollMaxLogin: (token: string) => request<MaxLoginPoll>('/auth/max-login/poll', { method: 'POST', body: { token } }),
 	logout: () => request<void>('/auth/logout', { method: 'POST' }),
 	logoutAll: () => request<void>('/auth/logout-all', { method: 'POST' }),
 	changePassword: (body: ChangePasswordRequest) => request<void>('/auth/password', { method: 'POST', body }),
