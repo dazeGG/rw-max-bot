@@ -53,6 +53,7 @@ ADMIN_DOMAIN=max-admin.rw-y.ru
 ACME_DNS_BIND_IP=$(ip -4 -o route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')
 ACME_TSIG_SECRET=$(openssl rand -base64 32)
 BOT_TOKEN=
+BOT_USERNAME=
 POSTGRES_PASSWORD=$(secret)
 INTERNAL_API_TOKEN=$(secret)
 WEBHOOK_SECRET=$(secret)
@@ -60,7 +61,7 @@ CONTENT_REFRESH_SECONDS=30
 LOG_LEVEL=info
 EOF
 	chmod 600 "$ENV_FILE"
-	echo "Создан $ENV_FILE — впишите BOT_TOKEN"
+	echo "Создан $ENV_FILE — впишите BOT_TOKEN и BOT_USERNAME"
 else
 	echo "$ENV_FILE уже есть, не трогаю"
 fi

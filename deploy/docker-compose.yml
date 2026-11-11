@@ -43,6 +43,8 @@ services:
       BOT_CONTROL_URL: http://bot:3002
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?}
       ADMIN_COOKIE_SECURE: 'true'
+      BOT_USERNAME: ${BOT_USERNAME:?}
+      ADMIN_URL: https://${ADMIN_DOMAIN:?}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - logs:/app/logs

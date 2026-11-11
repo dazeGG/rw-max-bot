@@ -29,6 +29,8 @@ if [ ! -f "$ENV_FILE" ]; then
 		cat > "$ENV_FILE" <<EOF
 DOMAIN=rw-bot.dazinho.ru
 ADMIN_DOMAIN=admin-rw-bot.dazinho.ru
+ACME_DNS_BIND_IP=127.0.0.1
+ACME_TSIG_SECRET=unused
 BOT_TOKEN=$token
 BOT_USERNAME=id1435073060_bot
 POSTGRES_PASSWORD=$(secret)

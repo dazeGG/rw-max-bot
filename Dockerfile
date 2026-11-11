@@ -1,4 +1,4 @@
-# Образы для сервера: api, bot и web (Caddy: HTTPS и вебхук бота). Админка в них не входит.
+# Образы для сервера: api, bot, web (Caddy: HTTPS, вебхук бота и админка) и dns (проверка сертификата админки).
 # Собираются из deploy/docker-compose.yml, контекст — корень репозитория.
 
 FROM node:24-slim AS base
@@ -47,6 +47,8 @@ RUN xcaddy build v2.10.2 --with github.com/caddy-dns/rfc2136@v1.0.0 --output /ca
 FROM caddy:2.10.2-alpine AS web
 COPY --from=caddy-build /caddy /usr/bin/caddy
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
+# admin-dist кладет deploy.sh после сборки админки у разработчика
+COPY deploy/admin-dist /srv/admin
 
 FROM cznic/knot:v3.5.10 AS dns
 COPY deploy/dns/start.sh /start.sh

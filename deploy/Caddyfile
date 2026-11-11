@@ -1,16 +1,7 @@
-# Наружу открыт только вебхук MAX. Админка на этот сервер не выкладывается.
-# Caddy сам получает и продлевает сертификат Let's Encrypt для DOMAIN (нужны открытые 80 и 443)
+# Два адреса: DOMAIN открыт наружу только для вебхука MAX, ADMIN_DOMAIN — админка и API, адрес закрывает контур заказчика.
+# Сертификат DOMAIN Caddy получает через открытые 80 и 443, сертификат ADMIN_DOMAIN — через DNS: см. deploy/README.md
 
-{$DOMAIN} {
-	# Подлинность запроса бот проверяет сам по заголовку X-Max-Bot-Api-Secret
-	handle /webhook {
-		reverse_proxy bot:3000
-	}
-
-	handle {
-		respond 404
-	}
-
+(security_headers) {
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
@@ -20,8 +11,19 @@
 	}
 }
 
-# Пока только сертификат, сама админка выкладывается отдельно.
-# Адрес админки закрыт контуром, поэтому проверка идет через DNS: см. deploy/README.md
+{$DOMAIN} {
+	import security_headers
+
+	# Подлинность запроса бот проверяет сам по заголовку X-Max-Bot-Api-Secret
+	handle /webhook {
+		reverse_proxy bot:3000
+	}
+
+	handle {
+		respond 404
+	}
+}
+
 {$ADMIN_DOMAIN} {
 	tls {
 		dns rfc2136 {
@@ -35,5 +37,18 @@
 		propagation_timeout -1
 	}
 
-	respond 404
+	import security_headers
+	encode zstd gzip
+
+	# В API проксируется только /api: /internal/* для бота доступен лишь внутри docker-сети
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	# Админка: SPA, неизвестные пути отдают index.html
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
 }

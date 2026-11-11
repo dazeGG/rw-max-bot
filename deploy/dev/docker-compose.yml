@@ -8,6 +8,10 @@ services:
   postgres:
     mem_limit: 384m
 
+  # Сертификаты стенда выпускает Caddy войсрума; параметры DNS в .env только для проверки compose
+  dns:
+    profiles: [unused]
+
   api:
     environment:
       BOT_USERNAME: ${BOT_USERNAME:?}
