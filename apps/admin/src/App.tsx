@@ -1,7 +1,7 @@
-import { CustomerServiceOutlined, FileTextOutlined, LogoutOutlined, QuestionCircleOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons';
+import { BarChartOutlined, CustomerServiceOutlined, FileTextOutlined, LogoutOutlined, QuestionCircleOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Badge, Button, Layout, Menu, Tooltip } from 'antd';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router';
 
 import type { AdminUser } from '@rw/core';
@@ -18,6 +18,9 @@ import { errorText, isManager, logOut, QUESTIONS_KEY, ROLE_LABELS, useMe } from 
 import { SettingsPage } from './SettingsPage';
 import { StaffPage } from './StaffPage';
 import { SupportPage, useSupportFeed } from './SupportPage';
+
+// Библиотека графиков нужна только на этом экране: остальные не должны ее ждать
+const StatsPage = lazy(() => import('./StatsPage').then(module => ({ default: module.StatsPage })));
 
 const SIDER_WIDTH = 232;
 
@@ -45,6 +48,7 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 		? [
 			{ key: 'content', icon: <FileTextOutlined />, label: <MenuLabel to="/content" title="Контент" /> },
 			{ key: 'questions', icon: <QuestionCircleOutlined />, label: <MenuLabel to="/questions" title="Вопросы" count={questions.data?.length} /> },
+			{ key: 'stats', icon: <BarChartOutlined />, label: <MenuLabel to="/stats" title="Статистика" /> },
 			support,
 			{ key: 'settings', icon: <SettingOutlined />, label: <MenuLabel to="/settings" title="Настройки" /> },
 			{ key: 'staff', icon: <TeamOutlined />, label: <MenuLabel to="/staff" title="Сотрудники" /> },
@@ -91,6 +95,7 @@ const Shell = ({ user }: { user: AdminUser; }) => {
 						<>
 							<Route path="/content/:nodeId?" element={<ContentPage user={user} />} />
 							<Route path="/questions" element={<QuestionsPage />} />
+							<Route path="/stats" element={<Suspense fallback={<div className="center muted">Загрузка…</div>}><StatsPage /></Suspense>} />
 							<Route path="/settings" element={<SettingsPage />} />
 							<Route path="/staff" element={<StaffPage user={user} />} />
 						</>

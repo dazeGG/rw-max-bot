@@ -719,6 +719,160 @@ code {
 	padding: 20px 24px;
 }
 
+.stats-tiles {
+	grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 1500px) {
+	.stats-tiles {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 620px) {
+	.stats-tiles {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+.stats-filters {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.stats-stale {
+	opacity: 0.6;
+}
+
+.stats-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+}
+
+.stats-wide {
+	grid-column: 1 / -1;
+}
+
+@media (max-width: 1100px) {
+	.stats-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+.numeric {
+	font-variant-numeric: tabular-nums;
+}
+
+.chart-empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.chart-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 16px;
+	margin-bottom: 12px;
+	font-size: 12px;
+	color: var(--text-secondary);
+}
+
+.chart-legend span {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.chart-legend i,
+.chart-tip-row i {
+	flex: none;
+	width: 10px;
+	height: 10px;
+	border-radius: 3px;
+}
+
+.chart-tip {
+	min-width: 160px;
+	padding: 8px 12px;
+	font-size: 12px;
+	background: #fff;
+	border-radius: 8px;
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.chart-tip-title {
+	margin-bottom: 4px;
+	font-weight: 600;
+}
+
+.chart-tip-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--text-secondary);
+}
+
+.chart-tip-row b {
+	margin-left: auto;
+	padding-left: 12px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	color: rgba(0, 0, 0, 0.88);
+}
+
+.chart-tip-total {
+	margin-top: 4px;
+	padding-top: 4px;
+	border-top: 1px solid var(--split);
+}
+
+.section-bars {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.section-bars li {
+	display: grid;
+	grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 40px;
+	align-items: center;
+	gap: 12px;
+}
+
+.section-bars-track {
+	display: block;
+}
+
+.section-bars-track i {
+	display: block;
+	height: 12px;
+	min-width: 2px;
+	border-radius: 0 4px 4px 0;
+}
+
+.section-bars b {
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
+@media (max-width: 520px) {
+	.section-bars li {
+		grid-template-columns: minmax(0, 1fr) 40px;
+	}
+
+	.section-bars-title {
+		grid-column: 1 / -1;
+	}
+}
+
 .questions-bar {
 	display: flex;
 	flex-wrap: wrap;

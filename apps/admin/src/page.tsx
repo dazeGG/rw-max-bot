@@ -1,6 +1,6 @@
 // Общее для страниц админки: шапка с заголовком и вкладками, аватар с инициалами
 
-import { Avatar, Tabs } from 'antd';
+import { Avatar, Card, Statistic, Tabs } from 'antd';
 import type { AvatarProps, TabsProps } from 'antd';
 import type { ReactNode } from 'react';
 
@@ -28,6 +28,13 @@ export const PageHeader = ({ title, extra, tabs, activeTab, onTab, tabsExtra }: 
 			</div>
 		)}
 	</header>
+);
+
+export const Stat = ({ title, value, hint, good = false }: { title: string; value: number | string | undefined; hint: string; good?: boolean; }) => (
+	<Card className="stat-card">
+		<Statistic title={title} value={value} groupSeparator=" " loading={value === undefined} styles={good ? { content: { color: '#389e0d' } } : undefined} />
+		<div className="muted small">{hint}</div>
+	</Card>
 );
 
 // Как в дизайне: синий, оранжевый, зеленый и фиолетовый. Один человек всегда одного цвета

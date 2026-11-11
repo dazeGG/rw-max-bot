@@ -340,6 +340,44 @@ export type StaffMaxLinkResult =
 	| { status: 'linked'; fullName: string; }
 	| { status: 'invalid' | 'taken'; };
 
+export type StatsPeriod = 7 | 30 | 90;
+
+// Календарный день по якутскому времени. Значения посчитаны за этот день
+export type StatsDay = {
+	date: string;
+	activeUsers: number;
+	newUsers: number;
+	// Как бот понял вопрос, заданный своими словами
+	answered: number;
+	clarified: number;
+	unrecognized: number;
+	// Почему пассажир пришел к оператору
+	ticketsAsked: number;
+	ticketsNoOption: number;
+	ticketsUnrecognized: number;
+};
+
+export type StatsSection = {
+	code: string;
+	title: string;
+	opens: number;
+};
+
+export type StatsHour = {
+	hour: number;
+	events: number;
+};
+
+export type StatsResponse = {
+	subscribers: number;
+	blocked: number;
+	// За весь период: один пассажир считается один раз, поэтому это не сумма по дням
+	activeUsers: number;
+	days: StatsDay[];
+	sections: StatsSection[];
+	hours: StatsHour[];
+};
+
 // Код входа через MAX в ссылке на бота
 export const STAFF_LOGIN_PREFIX = 'login_';
 

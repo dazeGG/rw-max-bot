@@ -2,7 +2,7 @@
 
 import { DeleteOutlined, DownOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Alert, App, Badge, Button, Card, Dropdown, Form, Input, Modal, Segmented, Select, Space, Statistic, Table, Tag } from 'antd';
+import { Alert, App, Badge, Button, Card, Dropdown, Form, Input, Modal, Segmented, Select, Space, Table, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
@@ -14,7 +14,7 @@ import { ApplyStatus, useApply } from './apply-status';
 import { buildTree, pathOf } from './content-tree';
 import type { Tree } from './content-tree';
 import { formatWhen } from './labels';
-import { PageHeader } from './page';
+import { PageHeader, Stat } from './page';
 import { CONTENT_KEY, errorText, queryClient, QUESTIONS_KEY } from './session';
 
 const STATS_KEY = ['questions-stats'];
@@ -149,13 +149,6 @@ const CreateSectionModal = ({ question, tree, onClose }: ModalProps) => {
 };
 
 type Filter = 'all' | QuestionSource;
-
-const Stat = ({ title, value, hint, good = false }: { title: string; value: number | undefined; hint: string; good?: boolean; }) => (
-	<Card className="stat-card">
-		<Statistic title={title} value={value} loading={value === undefined} styles={good ? { content: { color: '#389e0d' } } : undefined} />
-		<div className="muted small">{hint}</div>
-	</Card>
-);
 
 const QuestionsTab = ({ tree, onApply }: { tree: Tree | undefined; onApply: () => void; }) => {
 	const { message } = App.useApp();
